@@ -1,0 +1,45 @@
+{
+  "name": "HOT CHOCO - BCTC Monthly",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "f1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "f2",
+      "name": "Check Feature + Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd=($json.command||'').trim(); const enabled = $json.shop_settings?.features?.bctc_enabled ?? true; if(!enabled) return [{json:{...$json,ok:false,fail_message:'Tính năng /bctc đang tắt.'}}]; const m=cmd.match(/^\\/bctc(?:\\s+(\\d{6}))?$/i); if(!m) return [{json:{...$json,ok:false,fail_message:'Cú pháp đúng: /bctc [YYYYMM]'}}]; const now=new Date(); const y=String(now.getUTCFullYear()); const mo=String(now.getUTCMonth()+1).padStart(2,'0'); return [{json:{...$json,ok:true,yyyymm:m[1]||`${y}${mo}`}}];"
+      }
+    },
+    { "id": "f3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "f4",
+      "name": "Query Monthly BCTC",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [930, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with sales_agg as ( select coalesce(sum(case when s.status='COMPLETED' then s.sold_price_vnd else 0 end),0)::bigint as revenue_vnd, coalesce(sum(case when s.status='REFUNDED' then -s.sold_price_vnd else 0 end),0)::bigint as refunds_vnd, coalesce(sum(case when s.status='COMPLETED' then s.commission_amount_vnd else 0 end),0)::bigint as commission_kept_vnd, coalesce(sum(case when s.status='COMPLETED' then s.consignor_amount_vnd else 0 end),0)::bigint as consignor_payout_vnd from public.sales s where s.shop_id=$1::uuid and to_char(s.sold_at at time zone 'Asia/Ho_Chi_Minh','YYYYMM')=$2 ), expense_agg as ( select coalesce(sum(e.amount_vnd),0)::bigint as total_expense_vnd from public.expenses e where e.shop_id=$1::uuid and to_char(e.expense_date,'YYYYMM')=$2 ) select s.revenue_vnd,s.refunds_vnd,s.commission_kept_vnd,s.consignor_payout_vnd,e.total_expense_vnd,(s.commission_kept_vnd-e.total_expense_vnd)::bigint as net_profit_vnd from sales_agg s cross join expense_agg e;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.yyyymm]}}" }
+      },
+      "continueOnFail": true
+    },
+    { "id": "f5", "name": "Format Message", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1160, 220], "parameters": { "language": "javaScript", "jsCode": "const row = Array.isArray($json) ? $json[0] : $json; const fmt=(n)=>new Intl.NumberFormat('vi-VN').format(Number(n||0)); return [{json:{...$items('Check Feature + Parse',0,0)[0].json, report_text:`📘 BCTC ${$items('Check Feature + Parse',0,0)[0].json.yyyymm}\nDoanh thu: ${fmt(row.revenue_vnd)}đ\nRefund: ${fmt(row.refunds_vnd)}đ\nHoa hồng giữ lại: ${fmt(row.commission_kept_vnd)}đ\nTrả nhà ký gửi: ${fmt(row.consignor_payout_vnd)}đ\nTổng chi phí: ${fmt(row.total_expense_vnd)}đ\nLợi nhuận ròng: ${fmt(row.net_profit_vnd)}đ`}}];" } },
+    { "id": "f6", "name": "Reply BCTC", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1390, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.report_text}}" } },
+    { "id": "f7", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 360], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'bctc','bctc-flow',$2,'ERROR','BCTC_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null, $json.telegram_chat_id, $json.fail_message || 'BCTC failed', JSON.stringify($json)]}}" } }, "continueOnFail": true },
+    { "id": "f8", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 360], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể tạo BCTC. Vui lòng thử lại.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Check Feature + Parse", "type": "main", "index": 0 }]] },
+    "Check Feature + Parse": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Query Monthly BCTC", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Query Monthly BCTC": { "main": [[{ "node": "Format Message", "type": "main", "index": 0 }]] },
+    "Format Message": { "main": [[{ "node": "Reply BCTC", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

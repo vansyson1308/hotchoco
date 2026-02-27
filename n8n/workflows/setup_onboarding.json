@@ -1,0 +1,186 @@
+{
+  "name": "HOT CHOCO - Setup Onboarding",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "s1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s2",
+      "name": "Parse + Validate Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        260
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const command = ($json.command || '').trim();\nconst enabled = $env.ONBOARDING_ENABLED !== 'false';\nif (!enabled) return [{json:{...$json,ok:false,fail_message:'Tính năng /setup đang tắt.'}}];\nconst m = command.match(/^\\/setup\\s+(\\S+)\\s+([A-Za-z0-9_-]{3,20})\\s+(.+)$/i);\nif (!m) return [{json:{...$json,ok:false,fail_message:'Cú pháp: /setup <SETUP_SECRET> <SHOP_CODE> <shop_name>|<owner_name>|<timezone>|<default_commission_rate>'}}];\nif (m[1] !== $env.SETUP_SECRET) return [{json:{...$json,ok:false,fail_message:'SETUP_SECRET không đúng.'}}];\nconst f = m[3].split('|').map(x=>x.trim());\nif (f.length !== 4 || f.some(x=>!x)) return [{json:{...$json,ok:false,fail_message:'Thiếu thông tin: shop_name|owner_name|timezone|default_commission_rate'}}];\nconst [shop_name, owner_name, timezone, commission_raw] = f;\nconst c = Number(String(commission_raw).replace(',', '.'));\nif (!Number.isFinite(c) || c < 0 || c > 100) return [{json:{...$json,ok:false,fail_message:'Commission mặc định phải từ 0..100'}}];\nreturn [{json:{...$json,ok:true,shop_code:m[2].toUpperCase(),shop_name,owner_name,timezone,default_commission_rate:c}}];"
+      }
+    },
+    {
+      "id": "s3",
+      "name": "Valid Setup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "name": "Create Shop+Owner+Sub",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        930,
+        220
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "begin; with ins_shop as (insert into public.shops (code,name,timezone,default_commission_rate,late_rules,settings) values ($1,$2,$3,$4::numeric,'{}'::jsonb,'{\"features\":{\"onboarding_enabled\":true,\"billing_enabled\":true}}'::jsonb) returning id), ins_owner as (insert into public.staff (shop_id,telegram_user_id,full_name,role,is_active) select id,$5::bigint,$6,'OWNER',true from ins_shop returning id,shop_id), ins_sub as (insert into public.subscriptions (shop_id,plan_code,status,period_start,period_end) select shop_id,'FREE','ACTIVE',(timezone('utc',now()))::date,((timezone('utc',now()))::date + interval '30 day')::date from ins_owner returning id) select (select id from ins_shop) as shop_id,(select id from ins_owner) as owner_id,(select id from ins_sub) as subscription_id; commit;",
+        "additionalFields": {
+          "queryParams": "={{[$json.shop_code,$json.shop_name,$json.timezone,$json.default_commission_rate,$json.telegram_user_id,$json.owner_name]}}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "name": "Reply Setup Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1160,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'✅ Setup thành công shop ' + $json.shop_code + '. Bạn đã là OWNER.'}}"
+      }
+    },
+    {
+      "id": "s6",
+      "name": "Log Setup Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        930,
+        360
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.error_logs (shop_id,workflow_name,node_name,telegram_chat_id,level,error_code,message,context) values (null,'setup_onboarding','setup-guard',$1,'ERROR','SETUP_FAILED',$2,$3::jsonb);",
+        "additionalFields": {
+          "queryParams": "={{[$json.telegram_chat_id,$json.fail_message || 'Setup failed',JSON.stringify($json)]}}"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "name": "Reply Setup Fail",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1160,
+        360
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.fail_message || 'Không thể setup shop. Vui lòng thử lại.'}}"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse + Validate Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse + Validate Setup": {
+      "main": [
+        [
+          {
+            "node": "Valid Setup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Setup?": {
+      "main": [
+        [
+          {
+            "node": "Create Shop+Owner+Sub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Setup Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Shop+Owner+Sub": {
+      "main": [
+        [
+          {
+            "node": "Reply Setup Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Setup Error": {
+      "main": [
+        [
+          {
+            "node": "Reply Setup Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

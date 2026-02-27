@@ -1,0 +1,56 @@
+{
+  "name": "HOT CHOCO - Return Item",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "ri1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "ri2",
+      "name": "Parse /return + feature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const enabled = $json.shop_settings?.features?.return_enabled ?? true;\nif(!enabled) return [{json:{...$json,ok:false,fail_message:'Tính năng /return đang tắt.'}}];\nconst m = ($json.command || '').trim().match(/^\\/return\\s+([A-Za-z0-9-]+)$/i);\nif(!m) return [{json:{...$json,ok:false,fail_message:'Cú pháp đúng: /return {SKU}'}}];\nreturn [{json:{...$json,ok:true,sku:m[1].toUpperCase()}}];"
+      }
+    },
+    { "id": "ri3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "ri4",
+      "name": "Guard status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [930, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select status from public.inventory where shop_id = $1::uuid and sku = $2 limit 1;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.sku]}}" }
+      }
+    },
+    {
+      "id": "ri5",
+      "name": "Apply RETURNED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1160, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.inventory set status='RETURNED', returned_at=coalesce(returned_at, timezone('utc', now())), updated_at=timezone('utc', now()) where shop_id = $1::uuid and sku = $2 and status in ('AVAILABLE','RESERVED','RETURNED') returning sku, status;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.sku]}}" }
+      },
+      "continueOnFail": true
+    },
+    { "id": "ri6", "name": "Reply Success", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1390, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{'✅ Đã /return SKU ' + $json.sku + '. Trạng thái hiện tại: RETURNED'}}" } },
+    { "id": "ri7", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 360], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'return_item','return-flow',$2,'ERROR','RETURN_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null,$json.telegram_chat_id,$json.fail_message || 'Return failed',JSON.stringify($json)]}}" } }, "continueOnFail": true },
+    { "id": "ri8", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 360], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể /return SKU này.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse /return + feature", "type": "main", "index": 0 }]] },
+    "Parse /return + feature": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Guard status", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Guard status": { "main": [[{ "node": "Apply RETURNED", "type": "main", "index": 0 }]] },
+    "Apply RETURNED": { "main": [[{ "node": "Reply Success", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "name": "HOT CHOCO - BG Expiry Warning 08h",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "x1",
+      "name": "Daily 08:00 VN",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {
+        "rule": {
+          "cronExpression": "0 8 * * *"
+        }
+      }
+    },
+    {
+      "id": "x2",
+      "name": "Find expiring in 3 days",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        470,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select i.shop_id, i.sku, i.expiry_date, c.display_name as consignor_name, ow.telegram_user_id as owner_telegram_id, sh.settings from public.inventory i join public.shops sh on sh.id=i.shop_id join public.consignors c on c.id = i.consignor_id left join public.staff ow on ow.shop_id = i.shop_id and ow.role='OWNER' and ow.is_active=true where i.status in ('AVAILABLE','RESERVED') and i.expiry_date is not null and i.expiry_date = ((timezone('Asia/Ho_Chi_Minh',now()))::date + interval '3 day')::date order by i.shop_id, c.display_name, i.sku;"
+      }
+    },
+    {
+      "id": "x3",
+      "name": "Format warning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        260
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const owner=$json.owner_telegram_id; const enabled = $json.settings?.features?.expiry_warning_enabled ?? true; if(!enabled) return [{json:{...$json,ok:false,fail_message:'expiry warning disabled'}}]; if(!owner) return [{json:{...$json,ok:false,fail_message:'Thiếu owner_telegram_id'}}]; const line=`- ${$json.sku} | ${$json.consignor_name} | Hết hạn: ${$json.expiry_date}`; return [{json:{...$json,ok:true,text:`⚠️ Cảnh báo hàng sắp hết hạn (3 ngày)\\n${line}`}}];"
+      }
+    },
+    {
+      "id": "x4",
+      "name": "ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        930,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "x5",
+      "name": "Send owner alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1160,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.owner_telegram_id}}",
+        "text": "={{$json.text}}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "x6",
+      "name": "Log BG04 error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1160,
+        320
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'bg_expiry_warning_08h','expiry-warning',0,'ERROR','BG04_ERROR',$2,$3::jsonb);",
+        "additionalFields": {
+          "queryParams": "={{[$json.shop_id,$json.fail_message || 'BG04 failed',JSON.stringify($json)]}}"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Daily 08:00 VN": {
+      "main": [
+        [
+          {
+            "node": "Find expiring in 3 days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find expiring in 3 days": {
+      "main": [
+        [
+          {
+            "node": "Format warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format warning": {
+      "main": [
+        [
+          {
+            "node": "ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ok?": {
+      "main": [
+        [
+          {
+            "node": "Send owner alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log BG04 error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

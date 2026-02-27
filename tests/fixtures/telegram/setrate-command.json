@@ -1,0 +1,9 @@
+{
+  "update_id": 27001,
+  "message": {
+    "message_id": 81,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/setrate THB 650"
+  }
+}

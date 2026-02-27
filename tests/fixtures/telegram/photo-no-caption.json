@@ -1,0 +1,9 @@
+{
+  "update_id": 20004,
+  "message": {
+    "message_id": 14,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "photo": [{ "file_id": "def" }]
+  }
+}

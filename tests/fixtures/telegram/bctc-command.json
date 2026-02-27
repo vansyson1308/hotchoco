@@ -1,0 +1,9 @@
+{
+  "update_id": 25002,
+  "message": {
+    "message_id": 62,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/bctc 202602"
+  }
+}

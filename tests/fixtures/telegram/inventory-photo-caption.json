@@ -1,0 +1,10 @@
+{
+  "update_id": 22001,
+  "message": {
+    "message_id": 31,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "photo": [{ "file_id": "small" }, { "file_id": "best-file-id" }],
+    "caption": "ks_mai, ring, 350k, 1.2tr"
+  }
+}

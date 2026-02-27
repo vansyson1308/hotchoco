@@ -1,0 +1,51 @@
+{
+  "name": "HOT CHOCO - Healthcheck",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "h1",
+      "name": "Health Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 280],
+      "parameters": {
+        "path": "hotchoco-health",
+        "httpMethod": "GET",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "h2",
+      "name": "Build Health",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [510, 280],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "name": "status", "value": "ok", "type": "string" },
+            { "name": "service", "value": "hotchoco-bot", "type": "string" },
+            { "name": "timestamp", "value": "={{$now}}", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "h3",
+      "name": "Return 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [760, 280],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": { "responseCode": 200 }
+      }
+    }
+  ],
+  "connections": {
+    "Health Webhook": { "main": [[{ "node": "Build Health", "type": "main", "index": 0 }]] },
+    "Build Health": { "main": [[{ "node": "Return 200", "type": "main", "index": 0 }]] }
+  }
+}

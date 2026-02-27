@@ -1,0 +1,30 @@
+{
+  "name": "HOT CHOCO - Master Telegram Router",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message", "callback_query"]
+      },
+      "id": "telegram-trigger-master",
+      "name": "Telegram Trigger (Single Entry)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [240, 280],
+      "notes": "PRD hard rule: only one Telegram trigger for entire bot"
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "hotchoco"
+    },
+    {
+      "name": "master"
+    }
+  ]
+}

@@ -1,0 +1,230 @@
+{
+  "name": "HOT CHOCO - Inventory Intake",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "i1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "i2",
+      "name": "Validate Photo + Caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        280
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const msg = $json.raw?.message || {};\nif (!Array.isArray(msg.photo) || msg.photo.length === 0) {\n  return [{ json: { ...$json, ok: false, fail_message: 'Vui lòng gửi ảnh sản phẩm.' } }];\n}\nif (!msg.caption || !msg.caption.trim()) {\n  return [{ json: { ...$json, ok: false, fail_message: 'Bạn vui lòng gửi caption theo mẫu: <consignor>, <category>, <giá nhập>, <giá bán>' } }];\n}\nconst bestPhoto = msg.photo[msg.photo.length - 1];\nreturn [{ json: { ...$json, ok: true, telegram_file_id: bestPhoto.file_id, caption: msg.caption.trim() } }];"
+      }
+    },
+    {
+      "id": "i3",
+      "name": "Gate Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        760,
+        280
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "i4",
+      "name": "Parse + Sanitize + SKU",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const caption = $json.caption;\nconst split = caption.split(/\\s*[,\\-]\\s*/).map(x => x.trim()).filter(Boolean);\nif (split.length < 4) {\n  return [{ json: { ...$json, ok: false, fail_message: 'Caption không hiểu, vui lòng nhập đúng 4 trường.' } }];\n}\nconst [consignor, category, intake, sale] = split;\nconst catMap = { ring:'RING', necklace:'NECKLACE', bracelet:'BRACELET', earring:'EARRING', brooch:'BROOCH', other:'OTHER' };\nconst cat = catMap[String(category).toLowerCase()] || String(category).toUpperCase();\nconst parseMoney = (v) => {\n  const s = String(v).toLowerCase().replace(/\\s+/g,'').replace(/vnd|đ/g,'');\n  const m = s.match(/(k|tr)$/);\n  const suffix = m?.[1] || '';\n  const n = suffix ? s.slice(0, -suffix.length) : s;\n  const base = suffix && /[.,]/.test(n) ? Number(n.replace(',', '.')) : Number(n.replace(/[.,]/g, ''));\n  if (!Number.isFinite(base)) throw new Error('invalid money');\n  const mul = suffix === 'k' ? 1000 : suffix === 'tr' ? 1000000 : 1;\n  return Math.round(base * mul);\n};\nconst intakeVnd = parseMoney(intake);\nconst saleVnd = parseMoney(sale);\nconst prefixMap = { RING:'RI', NECKLACE:'NE', BRACELET:'BR', EARRING:'EA', BROOCH:'BO', OTHER:'OT' };\nconst now = new Date();\nconst yymm = String(now.getUTCFullYear()).slice(-2) + String(now.getUTCMonth()+1).padStart(2,'0');\nconst alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';\nlet tok='';\nfor (let i=0;i<4;i++){ tok += alphabet[Math.floor(Math.random()*alphabet.length)] }\nconst sku = `${prefixMap[cat] || 'OT'}-${yymm}-${tok}`;\nreturn [{ json: { ...$json, ok: true, parsed: { consignorCode: consignor.toUpperCase(), categoryCode: cat, intakePriceVnd: intakeVnd, salePriceVnd: saleVnd }, sku } }];"
+      }
+    },
+    {
+      "id": "i5",
+      "name": "Insert inventory (pending upload)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1280,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.inventory (shop_id, consignor_id, sku, category, intake_price_vnd, sale_price_vnd, commission_rate, status, telegram_file_id, media_status) values ($1::uuid, $2::uuid, $3, $4, $5, $6, 0, 'AVAILABLE', $7, 'PENDING_UPLOAD') returning id;",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context.shop_id, $items('Find/Create Consignor',0,0)[0].json.consignor_id || '00000000-0000-0000-0000-000000000000', $json.sku, $json.parsed.categoryCode, $json.parsed.intakePriceVnd, $json.parsed.salePriceVnd, $json.telegram_file_id]}}"
+        }
+      }
+    },
+    {
+      "id": "i4b",
+      "name": "Find/Create Consignor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1150,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with s as (select id as shop_id, default_commission_rate, settings from public.shops where id = $1::uuid), found as (select id from public.consignors where shop_id = $1::uuid and (code = $2 or lower(display_name)=lower($3)) limit 1), ins as (insert into public.consignors (shop_id, code, display_name, commission_type, commission_rate_fixed, currency_default, status) select $1::uuid, $2, $3, 'FIXED', (select default_commission_rate from s), case when upper($4)='THB' then 'THB' else 'VND' end, 'ACTIVE' where (select coalesce(((select settings from s)->'features'->>'auto_create_consignor_enabled'),'true')) = 'true' and not exists(select 1 from found) returning id) select coalesce((select id from found),(select id from ins)) as consignor_id;",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context.shop_id, $json.parsed.consignorCode, $json.parsed.consignorCode, $json.parsed.currency || 'VND']}}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "i6",
+      "name": "Send Confirm Keyboard",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'🧾 Xác nhận nhập hàng\nSKU: ' + $json.sku + '\nNhà ký gửi: ' + $json.parsed.consignorCode + '\nDanh mục: ' + $json.parsed.categoryCode + '\nGiá nhập: ' + $json.parsed.intakePriceVnd + '\nGiá bán: ' + $json.parsed.salePriceVnd}}",
+        "replyMarkup": "={\"inline_keyboard\":[[{\"text\":\"✅\",\"callback_data\":\"inv:confirm:\"+$json.sku},{\"text\":\"✏️\",\"callback_data\":\"inv:edit:\"+$json.sku},{\"text\":\"❌\",\"callback_data\":\"inv:cancel:\"+$json.sku}]]}"
+      }
+    },
+    {
+      "id": "i7",
+      "name": "Send Retry Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1020,
+        380
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.fail_message}}"
+      }
+    },
+    {
+      "id": "i8",
+      "name": "Callback Handler Stub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        420
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const data = $json.raw?.callback_query?.data || '';\nif (data.startsWith('inv:edit:')) return [{json:{...$json, cb_action:'edit'}}];\nif (data.startsWith('inv:cancel:')) return [{json:{...$json, cb_action:'cancel'}}];\nif (data.startsWith('inv:confirm:')) return [{json:{...$json, cb_action:'confirm'}}];\nreturn [{json:{...$json, cb_action:'unknown'}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Photo + Caption",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Callback Handler Stub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Photo + Caption": {
+      "main": [
+        [
+          {
+            "node": "Gate Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate Valid": {
+      "main": [
+        [
+          {
+            "node": "Parse + Sanitize + SKU",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Retry Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse + Sanitize + SKU": {
+      "main": [
+        [
+          {
+            "node": "Find/Create Consignor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert inventory (pending upload)": {
+      "main": [
+        [
+          {
+            "node": "Send Confirm Keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find/Create Consignor": {
+      "main": [
+        [
+          {
+            "node": "Insert inventory (pending upload)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

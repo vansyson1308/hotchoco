@@ -1,0 +1,45 @@
+{
+  "name": "HOT CHOCO - Export Excel",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "ex1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "ex2",
+      "name": "Parse /export + feature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const enabled = $json.shop_settings?.features?.export_enabled ?? true; if(!enabled) return [{json:{...$json,ok:false,fail_message:'Tính năng /export đang tắt.'}}]; const cmd=($json.command||'').trim(); const m=cmd.match(/^\\/export(?:\\s+(\\d{4}-\\d{2}-\\d{2}))?(?:\\s+(\\d{4}-\\d{2}-\\d{2}))?$/i); if(!m) return [{json:{...$json,ok:false,fail_message:'Cú pháp: /export [YYYY-MM-DD YYYY-MM-DD]'}}]; return [{json:{...$json,ok:true,date_from:m[1]||'1970-01-01',date_to:m[2]||'2999-12-31'}}];"
+      }
+    },
+    { "id": "ex3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    { "id": "ex4", "name": "Query Sales", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 180], "parameters": { "operation": "executeQuery", "query": "select sku, sold_at, sold_price_vnd, payment_method, status from public.sales where shop_id=$1::uuid and sold_at::date between $2::date and $3::date order by sold_at desc limit 10000;", "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.date_from,$json.date_to]}}" } } },
+    { "id": "ex5", "name": "Query Inventory", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 240], "parameters": { "operation": "executeQuery", "query": "select sku, category, status, intake_price_vnd, sale_price_vnd from public.inventory where shop_id=$1::uuid order by created_at desc limit 10000;", "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id]}}" } } },
+    { "id": "ex6", "name": "Query Attendance", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 300], "parameters": { "operation": "executeQuery", "query": "select staff_id, attendance_date, clock_in_time, clock_out_time, penalty_vnd from public.staff_attendance where shop_id=$1::uuid and attendance_date between $2::date and $3::date order by attendance_date desc limit 10000;", "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.date_from,$json.date_to]}}" } } },
+    {
+      "id": "ex7",
+      "name": "Build Workbook Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 240],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const src=$items('Parse /export + feature',0,0)[0].json; const sales=$items('Query Sales',0,0).map(i=>i.json); const inv=$items('Query Inventory',0,0).map(i=>i.json); const att=$items('Query Attendance',0,0).map(i=>i.json); const workbook={ fileName:`hotchoco_export_${src.date_from}_${src.date_to}.xlsx`, sheets:[ {name:'Sales',headers:['SKU','Sold At','Sold Price VND','Payment Method','Status'],rows:sales.map(r=>[r.sku,r.sold_at,r.sold_price_vnd,r.payment_method,r.status])}, {name:'Inventory',headers:['SKU','Category','Status','Intake Price VND','Sale Price VND'],rows:inv.map(r=>[r.sku,r.category,r.status,r.intake_price_vnd,r.sale_price_vnd])}, {name:'Attendance',headers:['Staff ID','Attendance Date','Clock In','Clock Out','Penalty VND'],rows:att.map(r=>[r.staff_id,r.attendance_date,r.clock_in_time,r.clock_out_time,r.penalty_vnd])} ] }; return [{json:{...src, workbook, export_hint:'xlsx builder plugin required at runtime'}}];"
+      }
+    },
+    { "id": "ex8", "name": "Reply Export Ready", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1390, 240], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{'✅ Đã chuẩn bị file export: ' + $json.workbook.fileName + '. Nếu lỗi kích thước, hãy thu hẹp khoảng ngày.'}}" } },
+    { "id": "ex9", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 380], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'export_excel','export-flow',$2,'ERROR','EXPORT_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null,$json.telegram_chat_id,$json.fail_message || 'Export failed',JSON.stringify($json)]}}" } }, "continueOnFail": true },
+    { "id": "ex10", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 380], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể export. Bạn thử lại với khoảng ngày nhỏ hơn nhé.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse /export + feature", "type": "main", "index": 0 }]] },
+    "Parse /export + feature": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Query Sales", "type": "main", "index": 0 }, { "node": "Query Inventory", "type": "main", "index": 0 }, { "node": "Query Attendance", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Query Sales": { "main": [[{ "node": "Build Workbook Payload", "type": "main", "index": 0 }]] },
+    "Build Workbook Payload": { "main": [[{ "node": "Reply Export Ready", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "name": "HOT CHOCO - BG Daily Report 21h",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "d1",
+      "name": "Daily 21:00 VN",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 260],
+      "parameters": {
+        "rule": {
+          "cronExpression": "0 21 * * *"
+        }
+      }
+    },
+    {
+      "id": "d2",
+      "name": "List shops + owners",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [470, 260],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select sh.id as shop_id, st.telegram_user_id as owner_telegram_id from public.shops sh left join public.staff st on st.shop_id = sh.id and st.role = 'OWNER' and st.is_active = true;"
+      }
+    },
+    {
+      "id": "d3",
+      "name": "Query daily summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 260],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select coalesce(sum(case when s.status='COMPLETED' then s.sold_price_vnd else 0 end),0)::bigint as revenue_vnd, coalesce(sum(case when s.status='REFUNDED' then -s.sold_price_vnd else 0 end),0)::bigint as refunds_vnd, coalesce(sum(case when s.status='COMPLETED' then s.commission_amount_vnd else 0 end),0)::bigint as commission_kept_vnd from public.sales s where s.shop_id = $1::uuid and (s.sold_at at time zone 'Asia/Ho_Chi_Minh')::date = (timezone('Asia/Ho_Chi_Minh', now()))::date;",
+        "additionalFields": { "queryParams": "={{[$json.shop_id]}}" }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "d4",
+      "name": "Format Daily Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [930, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const row = Array.isArray($json) ? $json[0] : $json; const src=$items('List shops + owners',0,0)[0].json; const fmt=(n)=>new Intl.NumberFormat('vi-VN').format(Number(n||0)); if(!src.owner_telegram_id){ return [{json:{...src, skip:true, fail_message:'Thiếu owner telegram id'}}]; } return [{json:{...src, skip:false, text:`📊 Báo cáo ngày 21h\nDoanh thu: ${fmt(row.revenue_vnd)}đ\nRefund: ${fmt(row.refunds_vnd)}đ\nHoa hồng giữ lại: ${fmt(row.commission_kept_vnd)}đ`}}];"
+      }
+    },
+    {
+      "id": "d5",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1160, 260],
+      "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.skip}}", "operation": "isFalse" }] } }
+    },
+    { "id": "d6", "name": "Send to owner", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1390, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.owner_telegram_id}}", "text": "={{$json.text}}" }, "continueOnFail": true },
+    { "id": "d7", "name": "Log BG error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [1390, 320], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'bg_daily_report_21h','daily-owner','0','ERROR','BG03_OWNER_MISSING',$2,$3::jsonb);", "additionalFields": { "queryParams": "={{[$json.shop_id,$json.fail_message || 'Owner telegram id missing', JSON.stringify($json)]}}" } }, "continueOnFail": true }
+  ],
+  "connections": {
+    "Daily 21:00 VN": { "main": [[{ "node": "List shops + owners", "type": "main", "index": 0 }]] },
+    "List shops + owners": { "main": [[{ "node": "Query daily summary", "type": "main", "index": 0 }]] },
+    "Query daily summary": { "main": [[{ "node": "Format Daily Message", "type": "main", "index": 0 }]] },
+    "Format Daily Message": { "main": [[{ "node": "Skip?", "type": "main", "index": 0 }]] },
+    "Skip?": { "main": [[{ "node": "Send to owner", "type": "main", "index": 0 }], [{ "node": "Log BG error", "type": "main", "index": 0 }]] }
+  }
+}

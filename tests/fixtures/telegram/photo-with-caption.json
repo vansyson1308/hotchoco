@@ -1,0 +1,10 @@
+{
+  "update_id": 20003,
+  "message": {
+    "message_id": 13,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "photo": [{ "file_id": "abc" }],
+    "caption": "cat: nhẫn\nconsignor: ks01\nintake: 100000\nsale: 150000"
+  }
+}

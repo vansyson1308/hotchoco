@@ -1,0 +1,58 @@
+{
+  "name": "HOT CHOCO - Alert on Failure",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [220, 260],
+      "parameters": {}
+    },
+    {
+      "id": "a2",
+      "name": "Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const wf = $json.workflow?.name || 'unknown';\nconst node = $json.node?.name || 'unknown';\nconst message = $json.error?.message || 'N/A';\nreturn [{json:{...$json,alert:`🚨 HOT CHOCO lỗi workflow: ${wf}\\nNode: ${node}\\nLỗi: ${message}\\nThời gian: ${new Date().toISOString()}`}}];"
+      }
+    },
+    {
+      "id": "a3",
+      "name": "Log Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 180],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.error_logs (shop_id, workflow_name, node_name, level, error_code, message, context) values ($1::uuid, 'alert_on_failure', $2, 'CRITICAL', 'N8N_EXECUTION_FAILED', $3, $4::jsonb);",
+        "additionalFields": {
+          "queryParams": "={{[$json.execution?.data?.resultData?.lastNodeExecuted ? null : null, $json.node?.name || 'unknown', $json.error?.message || 'Workflow failed', JSON.stringify($json)]}}"
+        }
+      }
+    },
+    {
+      "id": "a4",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [700, 340],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$env.OWNER_TELEGRAM_ID}}",
+        "text": "={{$json.alert}}"
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": { "main": [[{ "node": "Build Alert", "type": "main", "index": 0 }]] },
+    "Build Alert": { "main": [[{ "node": "Log Failure", "type": "main", "index": 0 }, { "node": "Notify Owner", "type": "main", "index": 0 }]] }
+  }
+}

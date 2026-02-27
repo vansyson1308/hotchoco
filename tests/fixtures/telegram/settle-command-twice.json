@@ -1,0 +1,12 @@
+{
+  "update_id": 26003,
+  "message": {
+    "message_id": 73,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/settle trang"
+  },
+  "meta": {
+    "second_run_expected": "no double-apply"
+  }
+}

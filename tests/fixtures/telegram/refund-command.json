@@ -1,0 +1,9 @@
+{
+  "update_id": 24001,
+  "message": {
+    "message_id": 51,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/refund RI-2602-ABCD"
+  }
+}
