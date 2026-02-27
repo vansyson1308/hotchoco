@@ -1,0 +1,12 @@
+{
+  "update_id": 24002,
+  "callback_query": {
+    "id": "cb-refund-1",
+    "from": { "id": 10001 },
+    "data": "refund:confirm:RI-2602-ABCD",
+    "message": {
+      "message_id": 52,
+      "chat": { "id": 10001, "type": "private" }
+    }
+  }
+}

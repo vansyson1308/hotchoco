@@ -1,0 +1,9 @@
+{
+  "update_id": 26002,
+  "message": {
+    "message_id": 72,
+    "from": { "id": 10002 },
+    "chat": { "id": 10002, "type": "private" },
+    "text": "/return RI-2602-ABCD"
+  }
+}

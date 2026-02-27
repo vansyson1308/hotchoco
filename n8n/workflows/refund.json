@@ -1,0 +1,80 @@
+{
+  "name": "HOT CHOCO - Refund",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "r1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [240, 260], "parameters": {} },
+    {
+      "id": "r2",
+      "name": "Parse /refund",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').trim();\nconst m = cmd.match(/^\\/refund\\s+([A-Za-z0-9-]+)$/);\nif (!m) return [{json:{...$json, ok:false, fail_message:'Cú pháp đúng: /refund {SKU}'}}];\nreturn [{json:{...$json, ok:true, sku:m[1].toUpperCase()}}];"
+      }
+    },
+    { "id": "r3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [760, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "r4",
+      "name": "Find Latest COMPLETED sale",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1020, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select s.id, s.sku, s.inventory_id, s.sold_price_vnd, s.consignor_amount_vnd, s.settlement_id, i.consignor_id from public.sales s join public.inventory i on i.id = s.inventory_id where s.shop_id = $1::uuid and s.sku = $2 and s.status = 'COMPLETED' order by s.sold_at desc limit 1;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, $json.sku]}}" }
+      }
+    },
+    {
+      "id": "r5",
+      "name": "Ask Confirm Reason",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1260, 220],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'Xác nhận hoàn SKU ' + $json.sku + '. Sale đã quyết toán: ' + ($json.settlement_id ? 'Có' : 'Chưa')}}",
+        "replyMarkup": "={\"inline_keyboard\":[[{\"text\":\"✅ Xác nhận hoàn\",\"callback_data\":\"refund:confirm:\"+$json.sku},{\"text\":\"❌ Hủy\",\"callback_data\":\"refund:cancel:\"+$json.sku}]]}"
+      }
+    },
+    {
+      "id": "r6",
+      "name": "Handle refund confirm callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 420],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const d = $json.raw?.callback_query?.data || '';\nconst m = d.match(/^refund:confirm:([A-Z0-9-]+)$/);\nif (!m) return [{json:{...$json, ok:false, fail_message:'Callback hoàn không hợp lệ'}}];\nreturn [{json:{...$json, ok:true, sku:m[1], refund_reason: $json.refund_reason || 'Khách hoàn hàng'}}];"
+      }
+    },
+    {
+      "id": "r7",
+      "name": "ACID Refund + restore inventory + adjustment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [760, 420],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "begin; with target as (select s.id as sale_id, s.inventory_id, s.shop_id, s.sku, i.consignor_id, s.consignor_amount_vnd, s.settlement_id from public.sales s join public.inventory i on i.id = s.inventory_id where s.shop_id = $1::uuid and s.sku = $2 and s.status = 'COMPLETED' order by s.sold_at desc limit 1 for update), upd_sale as (update public.sales set status='REFUNDED', refunded_at=timezone('utc',now()), refund_reason=$3, updated_at=timezone('utc',now()) where id=(select sale_id from target) returning id), upd_inv as (update public.inventory set status='AVAILABLE', sold_at=null, updated_at=timezone('utc',now()) where id=(select inventory_id from target) returning id), ins_adj as (insert into public.refund_adjustments (shop_id,sale_id,consignor_id,amount_vnd,deduction_status,note) select shop_id, sale_id, consignor_id, consignor_amount_vnd, 'PENDING', 'AUTO REFUND SETTLED' from target where settlement_id is not null returning id) select (select count(*) from upd_sale) as refunded_sale_count, (select count(*) from upd_inv) as restored_inventory_count, (select count(*) from ins_adj) as adjustment_count; commit;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, $json.sku, $json.refund_reason || 'Khách hoàn hàng']}}" }
+      },
+      "continueOnFail": true
+    },
+    { "id": "r8", "name": "Reply Refund Success", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1010, 420], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id || $json.raw.callback_query.message.chat.id}}", "text": "={{'✅ Hoàn SKU ' + $json.sku + ' thành công. Tồn kho đã khôi phục AVAILABLE.'}}" } },
+    { "id": "r9", "name": "Reply Refund Failure", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1010, 260], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Hoàn hàng thất bại. Vui lòng thử lại.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse /refund", "type": "main", "index": 0 }, { "node": "Handle refund confirm callback", "type": "main", "index": 0 }]] },
+    "Parse /refund": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Find Latest COMPLETED sale", "type": "main", "index": 0 }], [{ "node": "Reply Refund Failure", "type": "main", "index": 0 }]] },
+    "Find Latest COMPLETED sale": { "main": [[{ "node": "Ask Confirm Reason", "type": "main", "index": 0 }]] },
+    "Handle refund confirm callback": { "main": [[{ "node": "ACID Refund + restore inventory + adjustment", "type": "main", "index": 0 }]] },
+    "ACID Refund + restore inventory + adjustment": { "main": [[{ "node": "Reply Refund Success", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "HOT CHOCO - Expense",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "e1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "e2",
+      "name": "Check Feature + Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').trim();\nconst enabled = $json.shop_settings?.features?.expense_enabled ?? true;\nif (!enabled) return [{json:{...$json, ok:false, fail_message:'Tính năng /expense đang tắt.'}}];\nconst m = cmd.match(/^\\/expense\\s+(\\S+)\\s+(\\S+)(?:\\s+(.+))?$/i);\nif (!m) return [{json:{...$json, ok:false, fail_message:'Cú pháp đúng: /expense <category> <amount> [note...]'}}];\nreturn [{json:{...$json, ok:true, category:m[1], amount_raw:m[2], note:m[3]||null}}];"
+      }
+    },
+    { "id": "e3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "e4",
+      "name": "Normalize Expense",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [930, 220],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const map={rent:'RENT',thue:'RENT',salary:'SALARY',luong:'SALARY',shipping:'SHIPPING',vc:'SHIPPING',utilities:'UTILITIES',diennuoc:'UTILITIES',other:'OTHER',khac:'OTHER'};\nconst cat=map[String($json.category).toLowerCase()];\nif(!cat) return [{json:{...$json, ok:false, fail_message:'Danh mục không hợp lệ'}}];\nconst s=String($json.amount_raw).toLowerCase().replace(/\\s+/g,'').replace(/vnd|đ/g,'');\nconst m=s.match(/(k|tr)$/);const sf=m?.[1]||'';const n=sf?s.slice(0,-sf.length):s;const base=(sf && /[.,]/.test(n))?Number(n.replace(',','.')):Number(n.replace(/[.,]/g,''));if(!Number.isFinite(base)) return [{json:{...$json, ok:false, fail_message:'Số tiền không hợp lệ'}}];\nconst mul=sf==='k'?1000:sf==='tr'?1000000:1;\nreturn [{json:{...$json, ok:true, category_norm:cat, amount_vnd:Math.round(base*mul)}}];"
+      }
+    },
+    {
+      "id": "e5",
+      "name": "Insert Expense",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1160, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.expenses (shop_id, recorded_by_staff_id, category, amount_vnd, note, expense_date, created_at, updated_at) values ($1::uuid,$2::uuid,$3,$4::bigint,$5,(timezone('Asia/Ho_Chi_Minh',now()))::date,timezone('utc',now()),timezone('utc',now())) returning id;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.staff_context.staff_id,$json.category_norm,$json.amount_vnd,$json.note]}}" }
+      },
+      "continueOnFail": true
+    },
+    { "id": "e6", "name": "Reply Success", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1390, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{'✅ Đã ghi chi phí: ' + $json.category_norm + ' ' + $json.amount_vnd + 'đ'}}" } },
+    { "id": "e7", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 360], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'expense','expense-flow',$2,'ERROR','EXPENSE_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null, $json.telegram_chat_id, $json.fail_message || 'Expense failed', JSON.stringify($json)]}}" } }, "continueOnFail": true },
+    { "id": "e8", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 360], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể ghi chi phí. Vui lòng thử lại.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Check Feature + Parse", "type": "main", "index": 0 }]] },
+    "Check Feature + Parse": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Normalize Expense", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Normalize Expense": { "main": [[{ "node": "Insert Expense", "type": "main", "index": 0 }]] },
+    "Insert Expense": { "main": [[{ "node": "Reply Success", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

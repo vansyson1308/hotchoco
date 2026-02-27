@@ -1,0 +1,1413 @@
+{
+  "name": "HOT CHOCO - Sprint1 Master",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Telegram Trigger (Single)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ]
+      },
+      "notes": "PRD rule: only one Telegram Trigger for the bot"
+    },
+    {
+      "id": "2",
+      "name": "Normalize Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        430,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const u = $json.body ?? $json;\nconst msg = u.message ?? {};\nconst cb = u.callback_query ?? null;\nconst telegramUserId = cb?.from?.id ?? msg?.from?.id ?? null;\nconst telegramChatId = cb?.message?.chat?.id ?? msg?.chat?.id ?? null;\nconst text = msg?.text?.trim() ?? '';\nconst command = text.startsWith('/') ? text.split(/\\s+/)[0].toLowerCase() : null;\nreturn [{ json: { raw: u, message: msg, callback_query: cb, telegram_user_id: telegramUserId, telegram_chat_id: telegramChatId, command } }];"
+      }
+    },
+    {
+      "id": "3",
+      "name": "Auth Guard (Supabase)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/staff",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,shop_id,role,is_active"
+            },
+            {
+              "name": "telegram_user_id",
+              "value": "=eq.{{$json.telegram_user_id}}"
+            },
+            {
+              "name": "is_active",
+              "value": "eq.true"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "4",
+      "name": "Attach Staff Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const staff = Array.isArray($json) ? $json[0] : ($json[0] ?? null);\nconst input = $items('Normalize Update', 0, 0)[0].json;\nif (!staff) {\n  return [{ json: { ...input, authorized: false } }];\n}\nreturn [{ json: { ...input, authorized: true, staff_context: { staff_id: staff.id, shop_id: staff.shop_id, role: staff.role } } }];"
+      }
+    },
+    {
+      "id": "5",
+      "name": "Is Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1130,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.authorized}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6",
+      "name": "Unauthorized Error Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        460
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "shop_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "name": "workflow_name",
+              "value": "master",
+              "type": "string"
+            },
+            {
+              "name": "node_name",
+              "value": "Auth Guard",
+              "type": "string"
+            },
+            {
+              "name": "telegram_chat_id",
+              "value": "={{$json.telegram_chat_id}}",
+              "type": "number"
+            },
+            {
+              "name": "level",
+              "value": "ERROR",
+              "type": "string"
+            },
+            {
+              "name": "error_code",
+              "value": "UNAUTHORIZED",
+              "type": "string"
+            },
+            {
+              "name": "message",
+              "value": "Unauthorized staff access",
+              "type": "string"
+            },
+            {
+              "name": "context",
+              "value": "={{ { telegram_user_id: $json.telegram_user_id } }}",
+              "type": "object"
+            },
+            {
+              "name": "user_message_vi",
+              "value": "Bạn chưa được cấp quyền sử dụng bot. Vui lòng liên hệ chủ shop.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7",
+      "name": "Log error_logs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1590,
+        460
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values (nullif($1,'' )::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb);",
+        "additionalFields": {
+          "queryParams": "={{[$json.shop_id, $json.workflow_name, $json.node_name, $json.telegram_chat_id, $json.level, $json.error_code, $json.message, JSON.stringify($json.context)]}}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "8",
+      "name": "Send Unauthorized Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        460
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.user_message_vi}}"
+      }
+    },
+    {
+      "id": "9",
+      "name": "Router Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const u = $json.raw;\nif (u.callback_query) return [{ json: { ...$json, route: 'callback' } }];\nif (u.message?.video_note) return [{ json: { ...$json, route: 'attendance_video_note' } }];\nif (u.message?.photo?.length) {\n  return [{ json: { ...$json, route: u.message.caption?.trim() ? 'photo_with_caption' : 'photo_no_caption' } }];\n}\nif (u.message?.text?.startsWith('/')) return [{ json: { ...$json, route: 'command' } }];\nif (u.message?.text) return [{ json: { ...$json, route: 'text' } }];\nreturn [{ json: { ...$json, route: 'unsupported' } }];"
+      }
+    },
+    {
+      "id": "10",
+      "name": "Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1590,
+        220
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "attendance_video_note",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "photo_with_caption",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "photo_no_caption",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "command",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.route}}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "fallbackOutput": 6
+      }
+    },
+    {
+      "id": "11",
+      "name": "Command Permission Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const role = $json.staff_context.role;\nconst command = ($json.command || '').toLowerCase();\nconst matrix = {\n  '/refund': ['OWNER', 'MGR'], '/bctc': ['OWNER'], '/expense': ['OWNER','MGR'], '/settle': ['OWNER'], '/setrate': ['OWNER'], '/addstaff': ['OWNER'], '/removestaff': ['OWNER'], '/settings': ['OWNER'], '/setup': ['OWNER'], '/analytics': ['OWNER']\n};\nconst defaultAllowed = ['OWNER', 'MGR', 'STAFF'];\nconst allowed = matrix[command] || defaultAllowed;\nreturn [{ json: { ...$json, permission_ok: allowed.includes(role) } }];"
+      }
+    },
+    {
+      "id": "12",
+      "name": "Permission OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2050,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.permission_ok}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "13",
+      "name": "Handle Command Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2280,
+        160
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Đang phát triển…"
+      }
+    },
+    {
+      "id": "14",
+      "name": "Forbidden Error + Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2280,
+        280
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Bạn không có quyền thực hiện lệnh này."
+      }
+    },
+    {
+      "id": "15",
+      "name": "Handle Attendance Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        20
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Đang phát triển…"
+      }
+    },
+    {
+      "id": "16",
+      "name": "Handle Photo Caption Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Đang phát triển…"
+      }
+    },
+    {
+      "id": "17",
+      "name": "Handle Photo No Caption",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Bạn vui lòng gửi kèm caption theo mẫu để nhập hàng nhé."
+      }
+    },
+    {
+      "id": "18",
+      "name": "Handle Callback Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        340
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Đang phát triển…"
+      }
+    },
+    {
+      "id": "19",
+      "name": "Handle Text Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        400
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Không nhận diện được nội dung. Bạn dùng /help nhé."
+      }
+    },
+    {
+      "id": "20",
+      "name": "Handle Unsupported",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        520
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Yêu cầu chưa được hỗ trợ."
+      }
+    },
+    {
+      "id": "21",
+      "name": "Command Dispatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        100
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').toLowerCase();\nif (cmd.startsWith('/sell')) return [{json:{...$json, cmd_route:'sell'}}];\nif (cmd.startsWith('/receive') || cmd.startsWith('/done')) return [{json:{...$json, cmd_route:'bulk_receive'}}];\nif (cmd.startsWith('/sales')) return [{json:{...$json, cmd_route:'sales_report'}}];\nif (cmd.startsWith('/refund')) return [{json:{...$json, cmd_route:'refund'}}];\nif (cmd.startsWith('/settle')) return [{json:{...$json, cmd_route:'settlement'}}];\nif (cmd.startsWith('/expense')) return [{json:{...$json, cmd_route:'expense'}}];\nif (cmd.startsWith('/bctc')) return [{json:{...$json, cmd_route:'bctc'}}];\nif (cmd.startsWith('/return')) return [{json:{...$json, cmd_route:'return_item'}}];\nif (cmd.startsWith('/setrate')) return [{json:{...$json, cmd_route:'setrate'}}];\nif (cmd.startsWith('/export')) return [{json:{...$json, cmd_route:'export_excel'}}];\nif (cmd.startsWith('/analytics')) return [{json:{...$json, cmd_route:'analytics'}}];\nif (cmd.startsWith('/myitems') || cmd.startsWith('/mysales') || cmd.startsWith('/mypayouts')) return [{json:{...$json, cmd_route:'consignor_portal'}}];\nreturn [{json:{...$json, cmd_route:'command_stub'}}];"
+      }
+    },
+    {
+      "id": "22",
+      "name": "Command Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2510,
+        100
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "sell",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "bulk_receive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "sales_report",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "refund",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "settlement",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "expense",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "bctc",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "return_item",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "setrate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "export_excel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "analytics-route",
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "analytics",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "analytics"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "consignor-portal-route",
+                    "leftValue": "={{$json.cmd_route}}",
+                    "rightValue": "consignor_portal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "consignor_portal"
+            }
+          ]
+        },
+        "fallbackOutput": 10
+      }
+    },
+    {
+      "id": "23",
+      "name": "Execute Sales Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        40
+      ],
+      "parameters": {
+        "workflowId": "sales.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "24",
+      "name": "Execute Bulk Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        100
+      ],
+      "parameters": {
+        "workflowId": "bulk_receive.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "25",
+      "name": "Daily Sales Report Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2740,
+        160
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "📊 Báo cáo /sales đang xử lý ở sales workflow."
+      }
+    },
+    {
+      "id": "26",
+      "name": "Command Fallback Stub",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2740,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "Đang phát triển…"
+      }
+    },
+    {
+      "id": "27",
+      "name": "Execute Refund Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        280
+      ],
+      "parameters": {
+        "workflowId": "refund.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "28",
+      "name": "Execute Settlement Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        340
+      ],
+      "parameters": {
+        "workflowId": "settlement.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "29",
+      "name": "Execute Expense Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        400
+      ],
+      "parameters": {
+        "workflowId": "expense.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "30",
+      "name": "Execute BCTC Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        460
+      ],
+      "parameters": {
+        "workflowId": "bctc.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "31",
+      "name": "Execute Return Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        520
+      ],
+      "parameters": {
+        "workflowId": "return_item.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "32",
+      "name": "Execute Setrate Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        580
+      ],
+      "parameters": {
+        "workflowId": "setrate.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "33",
+      "name": "Execute Export Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        640
+      ],
+      "parameters": {
+        "workflowId": "export_excel.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s9a",
+      "name": "Is Setup Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.command || \"\"}}",
+              "operation": "startsWith",
+              "value2": "/setup"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s9b",
+      "name": "Run Setup Onboarding",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "workflowId": {
+          "mode": "id",
+          "value": "setup_onboarding"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "command": "={{$json.message?.text || \"\"}}",
+            "telegram_user_id": "={{$json.telegram_user_id}}",
+            "telegram_chat_id": "={{$json.telegram_chat_id}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "command",
+              "displayName": "command",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "telegram_user_id",
+              "displayName": "telegram_user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "telegram_chat_id",
+              "displayName": "telegram_chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s10a",
+      "name": "Execute Analytics Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        760
+      ],
+      "parameters": {
+        "workflowId": "analytics.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s11a",
+      "name": "Execute Consignor Portal Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2740,
+        820
+      ],
+      "parameters": {
+        "workflowId": "consignor_portal.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s11b",
+      "name": "Is Consignor Portal Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.command || \"\"}}",
+              "operation": "regex",
+              "value2": "^\\/(myitems|mysales|mypayouts)"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s11c",
+      "name": "Run Consignor Portal (Pre-auth)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ],
+      "parameters": {
+        "workflowId": "consignor_portal.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Telegram Trigger (Single)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Update": {
+      "main": [
+        [
+          {
+            "node": "Is Setup Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Guard (Supabase)": {
+      "main": [
+        [
+          {
+            "node": "Attach Staff Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Staff Context": {
+      "main": [
+        [
+          {
+            "node": "Is Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Router Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unauthorized Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unauthorized Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Log error_logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log error_logs": {
+      "main": [
+        [
+          {
+            "node": "Send Unauthorized Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Decision": {
+      "main": [
+        [
+          {
+            "node": "Route Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Switch": {
+      "main": [
+        [
+          {
+            "node": "Handle Attendance Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Photo Caption Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Photo No Caption",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Callback Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Command Permission Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Text Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Unsupported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command Permission Guard": {
+      "main": [
+        [
+          {
+            "node": "Permission OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Permission OK?": {
+      "main": [
+        [
+          {
+            "node": "Command Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Forbidden Error + Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Command Route Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command Route Switch": {
+      "main": [
+        [
+          {
+            "node": "Execute Sales Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Bulk Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Daily Sales Report Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Refund Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Settlement Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Expense Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute BCTC Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Return Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Setrate Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Export Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Analytics Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Consignor Portal Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Setup Command?": {
+      "main": [
+        [
+          {
+            "node": "Run Setup Onboarding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Consignor Portal Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Setup Onboarding": {
+      "main": [
+        []
+      ]
+    },
+    "Execute Analytics Workflow": {
+      "main": [
+        []
+      ]
+    },
+    "Execute Consignor Portal Workflow": {
+      "main": [
+        []
+      ]
+    },
+    "Is Consignor Portal Command?": {
+      "main": [
+        [
+          {
+            "node": "Run Consignor Portal (Pre-auth)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Guard (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Consignor Portal (Pre-auth)": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {}
+}

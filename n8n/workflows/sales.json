@@ -1,0 +1,101 @@
+{
+  "name": "HOT CHOCO - Sales Recording",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "s1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [240, 260], "parameters": {} },
+    {
+      "id": "s2",
+      "name": "Parse Sell Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').trim();\nconst m = cmd.match(/^\\/sell\\s+([A-Za-z0-9-]+)$/);\nif (!m) return [{json:{...$json, ok:false, fail_message:'Cú pháp đúng: /sell {SKU}'}}];\nreturn [{json:{...$json, ok:true, sku:m[1].toUpperCase()}}];"
+      }
+    },
+    { "id": "s3", "name": "Gate Valid Command", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [760, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "s4",
+      "name": "Lookup AVAILABLE Inventory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1020, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select i.id, i.shop_id, i.sku, i.sale_price_vnd, i.created_at, i.consignor_id, c.commission_type, c.commission_rate_fixed, c.commission_sliding_rules from public.inventory i join public.consignors c on c.id = i.consignor_id where i.shop_id = $1::uuid and i.sku = $2 and i.status = 'AVAILABLE' limit 1;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, $json.sku]}}" }
+      }
+    },
+    {
+      "id": "s5",
+      "name": "Send Payment Keyboard",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1270, 220],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'Bán SKU ' + $json.sku + '. Chọn phương thức thanh toán:'}}",
+        "replyMarkup": "={\"inline_keyboard\":[[{\"text\":\"Tiền mặt\",\"callback_data\":\"sellpay:\"+$json.sku+\":CASH\"},{\"text\":\"CK\",\"callback_data\":\"sellpay:\"+$json.sku+\":TRANSFER\"}],[{\"text\":\"MoMo\",\"callback_data\":\"sellpay:\"+$json.sku+\":MOMO\"},{\"text\":\"ZaloPay\",\"callback_data\":\"sellpay:\"+$json.sku+\":ZALOPAY\"}],[{\"text\":\"CARD\",\"callback_data\":\"sellpay:\"+$json.sku+\":CARD\"}]]}"
+      }
+    },
+    {
+      "id": "s6",
+      "name": "Handle sellpay callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 420],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const data = $json.raw?.callback_query?.data || '';\nconst m = data.match(/^sellpay:([A-Z0-9-]+):(CASH|TRANSFER|MOMO|ZALOPAY|CARD)$/);\nif (!m) return [{json:{...$json, ok:false, fail_message:'Callback thanh toán không hợp lệ'}}];\nreturn [{json:{...$json, ok:true, sku:m[1], payment_method:m[2]}}];"
+      }
+    },
+    {
+      "id": "s7",
+      "name": "ACID Record Sale",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [760, 420],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "begin; with inv as (select i.id, i.shop_id, i.sku, i.sale_price_vnd, i.created_at, c.commission_type, c.commission_rate_fixed, c.commission_sliding_rules from public.inventory i join public.consignors c on c.id = i.consignor_id where i.shop_id = $1::uuid and i.sku = $2 and i.status = 'AVAILABLE' for update), calc as (select id, shop_id, sku, sale_price_vnd, created_at, case when commission_type='FIXED' then commission_rate_fixed else coalesce((select (x->>'rate')::numeric from jsonb_array_elements(commission_sliding_rules) x where (x->>'days')::int <= greatest(1,ceil(extract(epoch from (timezone('utc',now())-created_at))/86400)) order by (x->>'days')::int desc limit 1), commission_rate_fixed) end as rate from inv), ins as (insert into public.sales(shop_id, inventory_id, sku, sold_by_staff_id, sold_price_vnd, payment_method, commission_rate, commission_amount_vnd, consignor_amount_vnd, days_consigned) select shop_id, id, sku, $3::uuid, sale_price_vnd, $4, rate, round(sale_price_vnd*rate), sale_price_vnd-round(sale_price_vnd*rate), greatest(1,ceil(extract(epoch from (timezone('utc',now())-created_at))/86400))::int from calc returning id) update public.inventory set status='SOLD', sold_at=timezone('utc',now()), updated_at=timezone('utc',now()) where shop_id=$1::uuid and sku=$2 and exists(select 1 from ins); commit;",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context.shop_id, $json.sku, $json.staff_context.staff_id, $json.payment_method]}}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s8",
+      "name": "Reply Sale Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1010, 420],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id || $json.raw.callback_query.message.chat.id}}",
+        "text": "={{'✅ Ghi nhận bán hàng thành công cho SKU ' + $json.sku + ' (' + $json.payment_method + ')'}}"
+      }
+    },
+    {
+      "id": "s9",
+      "name": "Reply Failure",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1010, 260],
+      "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể ghi nhận bán hàng. Vui lòng thử lại.'}}" }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse Sell Command", "type": "main", "index": 0 }, { "node": "Handle sellpay callback", "type": "main", "index": 0 }]] },
+    "Parse Sell Command": { "main": [[{ "node": "Gate Valid Command", "type": "main", "index": 0 }]] },
+    "Gate Valid Command": { "main": [[{ "node": "Lookup AVAILABLE Inventory", "type": "main", "index": 0 }], [{ "node": "Reply Failure", "type": "main", "index": 0 }]] },
+    "Lookup AVAILABLE Inventory": { "main": [[{ "node": "Send Payment Keyboard", "type": "main", "index": 0 }]] },
+    "Handle sellpay callback": { "main": [[{ "node": "ACID Record Sale", "type": "main", "index": 0 }]] },
+    "ACID Record Sale": { "main": [[{ "node": "Reply Sale Success", "type": "main", "index": 0 }]] }
+  }
+}

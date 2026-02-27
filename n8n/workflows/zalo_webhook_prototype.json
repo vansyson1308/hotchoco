@@ -1,0 +1,62 @@
+{
+  "name": "HOT CHOCO - Zalo Webhook Prototype",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "z1",
+      "name": "Zalo Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 260],
+      "parameters": {
+        "path": "zalo-prototype",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "z2",
+      "name": "Normalize Zalo (TEXT parity)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const body = $json.body ?? $json;\nconst text = body.message?.text?.trim() || '';\nconst command = text.startsWith('/') ? text.split(/\\s+/)[0].toLowerCase() : '';\nreturn [{json:{chat_id:String(body.sender?.id || ''),command,text,platform:'zalo'}}];"
+      }
+    },
+    {
+      "id": "z3",
+      "name": "Prototype Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [700, 260],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "name": "ok", "type": "boolean", "value": true },
+            { "name": "message", "type": "string", "value": "={{'Zalo prototype received: ' + ($json.command || $json.text || '')}}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "z4",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [930, 260],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": { "responseCode": 200 }
+      }
+    }
+  ],
+  "connections": {
+    "Zalo Webhook": { "main": [[{ "node": "Normalize Zalo (TEXT parity)", "type": "main", "index": 0 }]] },
+    "Normalize Zalo (TEXT parity)": { "main": [[{ "node": "Prototype Reply", "type": "main", "index": 0 }]] },
+    "Prototype Reply": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  }
+}

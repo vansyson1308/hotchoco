@@ -1,0 +1,10 @@
+{
+  "name": "HOT CHOCO - BG Report Scheduler",
+  "active": false,
+  "nodes": [],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "hotchoco" }, { "name": "background" }, { "name": "reporting" }]
+}

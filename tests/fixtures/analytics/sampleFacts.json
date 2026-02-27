@@ -1,0 +1,23 @@
+{
+  "sales": [
+    {"category":"ring","soldPriceVnd":700000,"soldAt":"2026-01-10T09:00:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":5},
+    {"category":"ring","soldPriceVnd":650000,"soldAt":"2026-01-11T10:00:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":7},
+    {"category":"necklace","soldPriceVnd":1200000,"soldAt":"2026-01-12T19:00:00.000Z","isRefunded":false,"staffId":"st2","consignorId":"c2","daysToSell":16},
+    {"category":"ring","soldPriceVnd":750000,"soldAt":"2026-01-12T23:30:00.000Z","isRefunded":true,"staffId":"st1","consignorId":"c1","daysToSell":4},
+    {"category":"brooch","soldPriceVnd":450000,"soldAt":"2026-01-13T03:00:00.000Z","isRefunded":false,"staffId":"st3","consignorId":"c3","daysToSell":30},
+    {"category":"ring","soldPriceVnd":680000,"soldAt":"2026-01-14T09:30:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":6},
+    {"category":"ring","soldPriceVnd":720000,"soldAt":"2026-01-15T09:45:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":8},
+    {"category":"earring","soldPriceVnd":500000,"soldAt":"2026-01-15T11:00:00.000Z","isRefunded":false,"staffId":"st2","consignorId":"c2","daysToSell":12},
+    {"category":"earring","soldPriceVnd":520000,"soldAt":"2026-01-16T11:15:00.000Z","isRefunded":false,"staffId":"st2","consignorId":"c2","daysToSell":11},
+    {"category":"earring","soldPriceVnd":510000,"soldAt":"2026-01-16T11:30:00.000Z","isRefunded":false,"staffId":"st2","consignorId":"c2","daysToSell":10},
+    {"category":"ring","soldPriceVnd":690000,"soldAt":"2026-01-17T09:20:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":9},
+    {"category":"ring","soldPriceVnd":710000,"soldAt":"2026-01-18T09:10:00.000Z","isRefunded":false,"staffId":"st1","consignorId":"c1","daysToSell":7}
+  ],
+  "inventory": [
+    {"sku":"R1","category":"ring","status":"AVAILABLE","ageDays":45,"consignorId":"c1"},
+    {"sku":"R2","category":"ring","status":"AVAILABLE","ageDays":20,"consignorId":"c1"},
+    {"sku":"N1","category":"necklace","status":"SOLD","ageDays":5,"consignorId":"c2"},
+    {"sku":"B1","category":"brooch","status":"RESERVED","ageDays":32,"consignorId":"c3"},
+    {"sku":"E1","category":"earring","status":"AVAILABLE","ageDays":31,"consignorId":"c2"}
+  ]
+}

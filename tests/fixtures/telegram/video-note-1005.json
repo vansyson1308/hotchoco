@@ -1,0 +1,11 @@
+{
+  "update_id": 21105,
+  "message": {
+    "message_id": 24,
+    "date": 1772171100,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "video_note": { "file_id": "vnote-1005" }
+  },
+  "meta": { "vn_time": "10:05" }
+}

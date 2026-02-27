@@ -1,0 +1,9 @@
+{
+  "update_id": 25001,
+  "message": {
+    "message_id": 61,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/expense rent 1.2tr tien nha"
+  }
+}

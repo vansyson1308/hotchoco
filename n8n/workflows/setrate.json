@@ -1,0 +1,43 @@
+{
+  "name": "HOT CHOCO - Set Rate",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "sr1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "sr2",
+      "name": "Parse /setrate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const m = ($json.command || '').trim().match(/^\\/setrate\\s+([A-Za-z]{3})\\s+([0-9]+(?:[.,][0-9]+)?)$/);\nif(!m) return [{json:{...$json,ok:false,fail_message:'Cú pháp đúng: /setrate {CUR} {rate}'}}];\nconst cur = m[1].toUpperCase();\nconst rate = Number(String(m[2]).replace(',','.'));\nif(!Number.isFinite(rate)||rate<=0) return [{json:{...$json,ok:false,fail_message:'Tỷ giá không hợp lệ'}}];\nreturn [{json:{...$json,ok:true,currency:cur,rate}}];"
+      }
+    },
+    { "id": "sr3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "sr4",
+      "name": "Update shops.exchange_rates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [930, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.shops set exchange_rates = coalesce(exchange_rates, '{}'::jsonb) || jsonb_build_object($2, $3), updated_at = timezone('utc', now()) where id = $1::uuid returning exchange_rates;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.currency,$json.rate]}}" }
+      },
+      "continueOnFail": true
+    },
+    { "id": "sr5", "name": "Reply Success", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{'✅ Đã cập nhật tỷ giá ' + $json.currency + ' = ' + $json.rate}}" } },
+    { "id": "sr6", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 360], "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values ($1::uuid,'setrate','setrate-flow',$2,'ERROR','SETRATE_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null,$json.telegram_chat_id,$json.fail_message || 'Setrate failed',JSON.stringify($json)]}}" } }, "continueOnFail": true },
+    { "id": "sr7", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 360], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể cập nhật tỷ giá.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse /setrate", "type": "main", "index": 0 }]] },
+    "Parse /setrate": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Update shops.exchange_rates", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Update shops.exchange_rates": { "main": [[{ "node": "Reply Success", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

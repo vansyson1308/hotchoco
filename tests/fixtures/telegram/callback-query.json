@@ -1,0 +1,12 @@
+{
+  "update_id": 20006,
+  "callback_query": {
+    "id": "cb-001",
+    "from": { "id": 10001 },
+    "data": "confirm:intake:sku123",
+    "message": {
+      "message_id": 99,
+      "chat": { "id": 10001, "type": "private" }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+
+  n8n-main:
+    image: n8nio/n8n:1.77.3
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file:
+      - ../.env
+    environment:
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PROTOCOL=${N8N_PROTOCOL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_QUEUE_BULL_REDIS_HOST=redis
+      - EXECUTIONS_MODE=queue
+      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=false
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_METRICS=true
+    depends_on:
+      - redis
+
+  n8n-worker:
+    image: n8nio/n8n:1.77.3
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_QUEUE_BULL_REDIS_HOST=redis
+      - EXECUTIONS_MODE=queue
+      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_METRICS=true
+    command: ["n8n", "worker", "--concurrency=10"]
+    depends_on:
+      - redis
