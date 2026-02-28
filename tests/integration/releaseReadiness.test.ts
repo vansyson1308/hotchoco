@@ -6,6 +6,7 @@ describe('release readiness contracts', () => {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
     expect(pkg.scripts['test:all']).toBeTypeOf('string');
     expect(pkg.scripts.smoke).toBeTypeOf('string');
+    expect(pkg.scripts.doctor).toBeTypeOf('string');
   });
 
   it('pos api dependencies are present', () => {
@@ -19,5 +20,11 @@ describe('release readiness contracts', () => {
     expect(existsSync('docs/troubleshooting.md')).toBe(true);
     expect(existsSync('docs/backup_restore.md')).toBe(true);
     expect(existsSync('docs/pdpd_technical_assessment.md')).toBe(true);
+    expect(existsSync('docs/quickstart_lowtech.md')).toBe(true);
+    expect(existsSync('docs/telegram_setup.md')).toBe(true);
+    expect(existsSync('docs/tunnel_ngrok_cloudflare.md')).toBe(true);
+    expect(existsSync('docs/n8n_import_and_credentials.md')).toBe(true);
+    expect(existsSync('docs/supabase_setup.md')).toBe(true);
+    expect(existsSync('docs/operator_checklist.md')).toBe(true);
   });
 });

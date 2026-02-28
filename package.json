@@ -11,7 +11,8 @@
     "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e",
     "pos-api:start": "node services/pos-api/src/server.ts",
     "loadtest:50shops": "node tools/loadtest/run_loadtest_50shops.ts",
-    "smoke": "node tools/smoke_check.js"
+    "smoke": "node tools/smoke_check.js",
+    "doctor": "node tools/doctor.js"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
