@@ -1,0 +1,10 @@
+{
+  "update_id": 27003,
+  "message": {
+    "message_id": 83,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "photo": [{ "file_id": "best" }],
+    "caption": "New Supplier THB, ring, 500k, 1000k"
+  }
+}

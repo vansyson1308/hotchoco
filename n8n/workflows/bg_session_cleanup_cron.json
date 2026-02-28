@@ -1,0 +1,53 @@
+{
+  "name": "HOT CHOCO - BG Session Cleanup Cron",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "c1",
+      "name": "Hourly Cron",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 260],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c2",
+      "name": "Cancel Stale ACTIVE Sessions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 260],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.temp_batches set status = 'CANCELLED', updated_at = timezone('utc', now()) where status = 'ACTIVE' and updated_at < timezone('utc', now()) - interval '2 hours' returning id, staff_id;"
+      }
+    },
+    {
+      "id": "c3",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [740, 260],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.staff_telegram_chat_id}}",
+        "text": "Phiên /receive đã quá hạn 2 giờ và đã được hủy tự động."
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Hourly Cron": { "main": [[{ "node": "Cancel Stale ACTIVE Sessions", "type": "main", "index": 0 }]] },
+    "Cancel Stale ACTIVE Sessions": { "main": [[{ "node": "Notify Staff", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "name": "HOT CHOCO - Attendance Handler",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 260],
+      "parameters": {}
+    },
+    {
+      "id": "a2",
+      "name": "Validate Mode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const mode = $json.mode || 'clock_in';\nif (mode === 'clock_in' && !$json.raw?.message?.video_note?.file_id) {\n  return [{ json: { ...$json, valid: false, fail_message: 'Chấm công chỉ chấp nhận Video Note (không nhận ảnh).' } }];\n}\nreturn [{ json: { ...$json, valid: true, mode } }];"
+      }
+    },
+    {
+      "id": "a3",
+      "name": "Within 06:00-12:00?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "if ($json.mode === 'clock_out') return [{ json: { ...$json, in_window: true } }];\nconst now = new Date();\nconst fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false });\nconst parts = fmt.formatToParts(now);\nconst h = Number(parts.find(p=>p.type==='hour')?.value || 0);\nconst m = Number(parts.find(p=>p.type==='minute')?.value || 0);\nconst minutes = h*60+m;\nreturn [{ json: { ...$json, in_window: minutes >= 360 && minutes <= 720 } }];"
+      }
+    },
+    {
+      "id": "a4",
+      "name": "Window OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [930, 260],
+      "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.in_window}}", "operation": "isTrue" }] } }
+    },
+    {
+      "id": "a5",
+      "name": "Upsert Attendance SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1160, 220],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with cfg as (select late_rules from public.shops where id = $1::uuid), ins as ( insert into public.staff_attendance (shop_id, staff_id, status, attendance_date, clock_in_time, video_note_file_id, late_minutes, penalty_vnd, penalty_rule) values ($1::uuid, $2::uuid, 'CLOCKED_IN', (timezone('Asia/Ho_Chi_Minh', now()))::date, timezone('utc', now()), $3, $4, $5, $6) on conflict (staff_id, attendance_date) do nothing returning id ) select coalesce((select count(*) from ins),0) as inserted;",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context.shop_id, $json.staff_context.staff_id, $json.raw.message.video_note.file_id, $json.late_minutes || 0, $json.penalty_vnd || 0, $json.penalty_rule || 'ON_TIME']}}"
+        }
+      }
+    },
+    {
+      "id": "a6",
+      "name": "Clock Out SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1160, 320],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.staff_attendance set clock_out_time = timezone('utc', now()), status = 'CLOCKED_OUT' where staff_id = $1::uuid and attendance_date = (timezone('Asia/Ho_Chi_Minh', now()))::date and clock_out_time is null returning id;",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context.staff_id]}}"
+        }
+      }
+    },
+    {
+      "id": "a7",
+      "name": "Notify Owner if Critical",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1390, 220],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.owner_telegram_chat_id}}",
+        "text": "⚠️ LATE_CRITICAL: Nhân viên {{$json.staff_context.staff_id}} đi trễ nghiêm trọng."
+      }
+    },
+    {
+      "id": "a8",
+      "name": "Reply Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1390, 320],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.mode === 'clock_out' ? 'Đã ghi nhận /out thành công.' : 'Đã chấm công thành công.'}}"
+      }
+    },
+    {
+      "id": "a9",
+      "name": "Reply Fail",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1160, 420],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.fail_message || 'Không trong khung giờ chấm công (06:00-12:00).'}}"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Validate Mode", "type": "main", "index": 0 }]] },
+    "Validate Mode": { "main": [[{ "node": "Within 06:00-12:00?", "type": "main", "index": 0 }]] },
+    "Within 06:00-12:00?": { "main": [[{ "node": "Window OK?", "type": "main", "index": 0 }]] },
+    "Window OK?": {
+      "main": [
+        [{ "node": "Upsert Attendance SQL", "type": "main", "index": 0 }, { "node": "Clock Out SQL", "type": "main", "index": 0 }],
+        [{ "node": "Reply Fail", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Attendance SQL": { "main": [[{ "node": "Notify Owner if Critical", "type": "main", "index": 0 }, { "node": "Reply Success", "type": "main", "index": 0 }]] },
+    "Clock Out SQL": { "main": [[{ "node": "Reply Success", "type": "main", "index": 0 }]] }
+  }
+}

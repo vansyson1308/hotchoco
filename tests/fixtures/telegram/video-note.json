@@ -1,0 +1,9 @@
+{
+  "update_id": 20005,
+  "message": {
+    "message_id": 15,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "video_note": { "file_id": "vnote1" }
+  }
+}

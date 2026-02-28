@@ -1,0 +1,48 @@
+openapi: 3.0.3
+info:
+  title: HOT CHOCO POS API
+  version: 0.1.0
+servers:
+  - url: http://localhost:3099
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API_KEY
+paths:
+  /inventory:
+    get:
+      summary: List inventory by shop
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create inventory item
+      responses:
+        '201': { description: Created }
+  /inventory/{sku}:
+    patch:
+      summary: Update inventory by SKU
+      parameters:
+        - in: path
+          name: sku
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete inventory by SKU
+      parameters:
+        - in: path
+          name: sku
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: No Content }
+  /sales:
+    post:
+      summary: Create sale (ACID)
+      responses:
+        '201': { description: Created }

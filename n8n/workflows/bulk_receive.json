@@ -1,0 +1,129 @@
+{
+  "name": "HOT CHOCO - Bulk Receive",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "b1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "b2",
+      "name": "Command Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').toLowerCase();\nif (cmd.startsWith('/receive')) return [{json:{...$json, action:'start_session'}}];\nif (cmd.startsWith('/done')) return [{json:{...$json, action:'close_session'}}];\nif ($json.raw?.message?.photo?.length) return [{json:{...$json, action:'album_item'}}];\nreturn [{json:{...$json, action:'ignore'}}];"
+      }
+    },
+    {
+      "id": "b3",
+      "name": "Action Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [710, 260],
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.action}}", "rightValue": "start_session", "operator": { "type": "string", "operation": "equals" } }] } },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.action}}", "rightValue": "album_item", "operator": { "type": "string", "operation": "equals" } }] } },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.action}}", "rightValue": "close_session", "operator": { "type": "string", "operation": "equals" } }] } }
+          ]
+        },
+        "fallbackOutput": 3
+      }
+    },
+    {
+      "id": "b4",
+      "name": "Start /receive Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 180],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.temp_batches(shop_id, staff_id, defaults, status, expires_at, updated_at) values ($1::uuid, $2::uuid, coalesce($3::jsonb,'{}'::jsonb), 'ACTIVE', timezone('utc', now()) + interval '2 hours', timezone('utc', now())) returning id;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, $json.staff_context.staff_id, '{}']}}" }
+      }
+    },
+    {
+      "id": "b5",
+      "name": "Group album by media_group_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const msg=$json.raw?.message||{}; const fileId = msg.photo?.[msg.photo.length-1]?.file_id; if(!fileId) return [{json:{...$json, ok:false}}]; return [{json:{...$json, ok:true, media_group_id: msg.media_group_id || null, telegram_file_id:fileId, caption_raw: msg.caption || null}}];"
+      }
+    },
+    { "id": "b6", "name": "Wait 2s after last photo", "type": "n8n-nodes-base.wait", "typeVersion": 1.1, "position": [1200, 260], "parameters": { "amount": 2, "unit": "seconds" } },
+    {
+      "id": "b7",
+      "name": "Insert temp_batch_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1440, 260],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.temp_batch_items(batch_id, shop_id, staff_id, media_group_id, telegram_file_id, caption_raw, parsed_data, status) values ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,coalesce($7::jsonb,'{}'::jsonb),'PENDING_CONFIRM');",
+        "additionalFields": { "queryParams": "={{[$json.batch_id || '00000000-0000-0000-0000-000000000000',$json.staff_context.shop_id,$json.staff_context.staff_id,$json.media_group_id,$json.telegram_file_id,$json.caption_raw,'{}']}}" }
+      }
+    },
+    {
+      "id": "b8",
+      "name": "Close Session /done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 340],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.temp_batches set status='COMPLETED', closed_at=timezone('utc',now()), updated_at=timezone('utc',now()) where shop_id=$1::uuid and staff_id=$2::uuid and status='ACTIVE' returning id, item_count, total_intake_vnd, total_sale_vnd;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id,$json.staff_context.staff_id]}}" }
+      }
+    },
+    {
+      "id": "b9",
+      "name": "Reply /done Totals",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1200, 340],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'Session đóng. Tổng: ' + ($json.item_count || 0) + ' món | ' + ($json.total_sale_vnd || 0) + 'đ'}}"
+      }
+    },
+    {
+      "id": "b10",
+      "name": "Reply Bulk Status",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, 260],
+      "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "Đã nhận ảnh vào batch, chờ xác nhận." }
+    },
+    {
+      "id": "b11",
+      "name": "Ignore",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, 420],
+      "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "Lệnh bulk không hợp lệ." }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Command Router", "type": "main", "index": 0 }]] },
+    "Command Router": { "main": [[{ "node": "Action Switch", "type": "main", "index": 0 }]] },
+    "Action Switch": {
+      "main": [
+        [{ "node": "Start /receive Session", "type": "main", "index": 0 }],
+        [{ "node": "Group album by media_group_id", "type": "main", "index": 0 }],
+        [{ "node": "Close Session /done", "type": "main", "index": 0 }],
+        [{ "node": "Ignore", "type": "main", "index": 0 }]
+      ]
+    },
+    "Group album by media_group_id": { "main": [[{ "node": "Wait 2s after last photo", "type": "main", "index": 0 }]] },
+    "Wait 2s after last photo": { "main": [[{ "node": "Insert temp_batch_item", "type": "main", "index": 0 }]] },
+    "Insert temp_batch_item": { "main": [[{ "node": "Reply Bulk Status", "type": "main", "index": 0 }]] },
+    "Close Session /done": { "main": [[{ "node": "Reply /done Totals", "type": "main", "index": 0 }]] }
+  }
+}

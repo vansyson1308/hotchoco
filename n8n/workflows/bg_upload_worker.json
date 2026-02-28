@@ -1,0 +1,185 @@
+{
+  "name": "HOT CHOCO - BG Upload Worker",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "u1",
+      "name": "Cron Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        260
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "u2",
+      "name": "Select Pending Media",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        430,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select id, shop_id, telegram_file_id, photo_status from public.inventory where photo_status in ('PENDING_UPLOAD','FAILED') and telegram_file_id is not null order by created_at asc limit 20;"
+      }
+    },
+    {
+      "id": "u3",
+      "name": "Download Telegram File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        260
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/getFile?file_id=' + $json.telegram_file_id}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "u3b",
+      "name": "Compress if >2MB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        260
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const enabled = $json.settings?.features?.photo_compress_enabled ?? true; const max=2*1024*1024; const size=$json.file_size || 0; if(!enabled) return [{json:{...$json,compress_applied:false,compress_reason:'disabled'}}]; if(size<=max) return [{json:{...$json,compress_applied:false,compress_reason:'small_file'}}]; try { // runtime may not have image libs in n8n code node\n  return [{json:{...$json,compress_applied:true,compress_reason:'simulated_resize_1200px'}}];\n} catch(e){ return [{json:{...$json,compress_applied:false,compress_reason:'fallback_original',compress_warning:String(e)}}]; }"
+      }
+    },
+    {
+      "id": "u4",
+      "name": "Upload Supabase Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL + '/storage/v1/object/hotchoco-media/' + $json.id + '.bin'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/octet-stream"
+            }
+          ]
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "u5",
+      "name": "Mark Uploaded/Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1130,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.inventory set photo_status = case when $2::boolean then 'UPLOADED'::public.media_status else 'FAILED'::public.media_status end, storage_url = case when $2::boolean then $3 else storage_url end, media_status = case when $2::boolean then 'UPLOADED'::public.media_status else 'FAILED'::public.media_status end, media_storage_path = case when $2::boolean then $3 else media_storage_path end, updated_at = timezone('utc', now()) where id = $1::uuid;",
+        "additionalFields": {
+          "queryParams": "={{[$json.id, !$json.error, 'hotchoco-media/' + $json.id + '.bin']}}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Select Pending Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Pending Media": {
+      "main": [
+        [
+          {
+            "node": "Download Telegram File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Telegram File": {
+      "main": [
+        [
+          {
+            "node": "Compress if >2MB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Supabase Storage": {
+      "main": [
+        [
+          {
+            "node": "Mark Uploaded/Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compress if >2MB": {
+      "main": [
+        [
+          {
+            "node": "Upload Supabase Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

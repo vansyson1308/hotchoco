@@ -1,0 +1,215 @@
+{
+  "name": "HOT CHOCO - Consignor Portal",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "c1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c2",
+      "name": "Resolve Consignor User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        470,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select shop_id, consignor_id from public.consignor_users where telegram_user_id = $1::bigint and status = 'ACTIVE' order by created_at desc limit 1;",
+        "additionalFields": {
+          "queryParams": "={{[$json.telegram_user_id]}}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "c3",
+      "name": "Portal Auth + Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        260
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const row = Array.isArray($json) ? $json[0] : ($json?.[0] ?? null);\nconst input = $items('Execute Workflow Trigger',0,0)[0].json;\nconst cmd = (input.command||'').toLowerCase();\nif(!row){return [{json:{...input,ok:false,fail_message:'Bạn chưa được cấp quyền consignor portal.'}}];}\nlet query='';\nif(cmd.startsWith('/myitems')) query='select sku, category, status from public.inventory where shop_id = $1::uuid and consignor_id = $2::uuid order by created_at desc limit 100';\nelse if(cmd.startsWith('/mysales')) query='select s.sku, s.sold_price_vnd, s.sold_at, s.status from public.sales s join public.inventory i on i.id=s.inventory_id where s.shop_id=$1::uuid and i.consignor_id=$2::uuid order by s.sold_at desc limit 100';\nelse query='select period_start, period_end, net_payout_vnd, status from public.settlements where shop_id=$1::uuid and consignor_id=$2::uuid order by created_at desc limit 24';\nreturn [{json:{...input,ok:true,query,shop_id:row.shop_id,consignor_id:row.consignor_id}}];"
+      }
+    },
+    {
+      "id": "c4",
+      "name": "Portal Auth OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        930,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c5",
+      "name": "Run Read-only Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1160,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.query}}",
+        "additionalFields": {
+          "queryParams": "={{[$json.shop_id,$json.consignor_id]}}"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "c6",
+      "name": "Reply Portal Data",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1390,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{'Dữ liệu của bạn: ' + JSON.stringify($json)}}"
+      }
+    },
+    {
+      "id": "c7",
+      "name": "Log Portal Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1160,
+        360
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.error_logs (shop_id,workflow_name,node_name,telegram_chat_id,level,error_code,message,context) values ($1::uuid,'consignor_portal','portal-auth',$2,'ERROR','PORTAL_ERROR',$3,$4::jsonb);",
+        "additionalFields": {
+          "queryParams": "={{[$json.staff_context?.shop_id || null,$json.telegram_chat_id,$json.fail_message || 'Portal failed',JSON.stringify($json)]}}"
+        }
+      }
+    },
+    {
+      "id": "c8",
+      "name": "Reply Portal Fail",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1390,
+        360
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.fail_message || 'Không thể truy cập portal.'}}"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Resolve Consignor User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Consignor User": {
+      "main": [
+        [
+          {
+            "node": "Portal Auth + Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Portal Auth + Query": {
+      "main": [
+        [
+          {
+            "node": "Portal Auth OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Portal Auth OK?": {
+      "main": [
+        [
+          {
+            "node": "Run Read-only Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Portal Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Read-only Query": {
+      "main": [
+        [
+          {
+            "node": "Reply Portal Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Portal Error": {
+      "main": [
+        [
+          {
+            "node": "Reply Portal Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

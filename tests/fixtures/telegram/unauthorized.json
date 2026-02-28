@@ -1,0 +1,9 @@
+{
+  "update_id": 20001,
+  "message": {
+    "message_id": 11,
+    "from": { "id": 999001 },
+    "chat": { "id": 999001, "type": "private" },
+    "text": "/sales"
+  }
+}

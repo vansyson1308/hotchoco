@@ -1,0 +1,27 @@
+{
+  "name": "hotchoco",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:unit": "vitest run tests --exclude tests/integration/** --exclude tests/e2e/**",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e",
+    "pos-api:start": "node services/pos-api/src/server.ts",
+    "loadtest:50shops": "node tools/loadtest/run_loadtest_50shops.ts",
+    "smoke": "node tools/smoke_check.js",
+    "doctor": "node tools/doctor.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  },
+  "dependencies": {
+    "nanoid": "^5.1.5",
+    "express": "^4.21.2",
+    "pg": "^8.13.3"
+  }
+}

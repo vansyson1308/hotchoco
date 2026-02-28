@@ -1,0 +1,69 @@
+{
+  "name": "HOT CHOCO - Analytics",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    { "id": "a1", "name": "Execute Workflow Trigger", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1, "position": [220, 260], "parameters": {} },
+    {
+      "id": "a2",
+      "name": "Parse Command + Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 260],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cmd = ($json.command || '').toLowerCase();\nconst range = cmd.includes('7d') ? 7 : cmd.includes('90d') ? 90 : 30;\nconst settings = $json.shop_settings || {};\nconst enabled = settings.features?.analytics_enabled ?? true;\nconst anomalyEnabled = settings.anomaly_enabled ?? true;\nif (!enabled) return [{json:{...$json,ok:false,fail_message:'Tính năng /analytics đang tắt.'}}];\nconst fromDate = new Date(Date.now() - range*24*60*60*1000).toISOString();\nreturn [{json:{...$json,ok:true,range_days:range,from_date:fromDate,anomaly_enabled:anomalyEnabled}}];"
+      }
+    },
+    { "id": "a3", "name": "Valid?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [700, 260], "parameters": { "conditions": { "boolean": [{ "value1": "={{$json.ok}}", "operation": "isTrue" }] } } },
+    {
+      "id": "a4",
+      "name": "Load Facts (Sales + Inventory)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [930, 220],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with sales_data as (select i.category, s.sold_price_vnd, s.sold_at, (s.status='REFUNDED') as is_refunded, s.sold_by_staff_id as staff_id, i.consignor_id, greatest(0, extract(day from s.sold_at - i.created_at))::int as days_to_sell from public.sales s join public.inventory i on i.id=s.inventory_id where s.shop_id=$1::uuid and s.sold_at >= $2::timestamptz), inventory_data as (select sku, category, status, greatest(0, extract(day from timezone('utc', now()) - created_at))::int as age_days, consignor_id from public.inventory where shop_id=$1::uuid) select jsonb_build_object('sales', coalesce((select jsonb_agg(to_jsonb(sales_data)) from sales_data), '[]'::jsonb), 'inventory', coalesce((select jsonb_agg(to_jsonb(inventory_data)) from inventory_data), '[]'::jsonb)) as facts;",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, $json.from_date]}}" }
+      }
+    },
+    {
+      "id": "a5",
+      "name": "Build Deterministic Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 220],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const input = $items('Parse Command + Flags',0,0)[0].json;\nconst payload = $json?.[0]?.facts || $json?.facts || {sales:[],inventory:[]};\nconst sales = payload.sales || [];\nconst inventory = payload.inventory || [];\nif (sales.length + inventory.length < 5) {\n  return [{json:{...input,report:`📊 *Analytics (${input.range_days}d)*\\n\\nchưa đủ dữ liệu để phân tích.`}}];\n}\nconst catMap = {};\nfor (const s of sales) { if (s.is_refunded) continue; const k=(s.category||'OTHER').toUpperCase(); catMap[k]=catMap[k]||{count:0,revenue:0}; catMap[k].count++; catMap[k].revenue += Number(s.sold_price_vnd||0); }\nconst top = Object.entries(catMap).sort((a,b)=>b[1].revenue-a[1].revenue).slice(0,3).map(([k,v],i)=>`${i+1}. ${k}: ${v.count} món, ${v.revenue}đ`).join('\\n') || '- chưa đủ dữ liệu';\nconst hourMap={};\nfor (const s of sales) { if (s.is_refunded) continue; const h=new Date(s.sold_at).getHours(); hourMap[h]=(hourMap[h]||0)+1; }\nconst peak = Object.entries(hourMap).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([h,c])=>`- ${h}h: ${c} giao dịch`).join('\\n') || '- chưa đủ dữ liệu';\nconst slow = inventory.filter(i=>['AVAILABLE','RESERVED'].includes(String(i.status||'').toUpperCase()) && Number(i.age_days)>=30).sort((a,b)=>b.age_days-a.age_days).slice(0,5).map(i=>`- ${i.sku} (${String(i.category||'OTHER').toUpperCase()}) tồn ${i.age_days} ngày`).join('\\n') || '- chưa đủ dữ liệu';\nconst refundRate = sales.length ? (sales.filter(s=>s.is_refunded).length / sales.length) : 0;\nconst anomalies = [];\nif (input.anomaly_enabled && refundRate >= 0.2) anomalies.push('- Cảnh báo cần kiểm tra: tỷ lệ refund tăng cao bất thường.');\nconst off = sales.filter(s=>{const h=new Date(s.sold_at).getHours(); return h<8 || h>22;}).length;\nif (input.anomaly_enabled && sales.length && off/sales.length>=0.15) anomalies.push('- Cảnh báo cần kiểm tra: nhiều giao dịch ngoài giờ vận hành.');\nconst anomalyText = anomalies.join('\\n') || '- chưa phát hiện cảnh báo cần kiểm tra.';\nconst report = `📊 *Analytics (${input.range_days}d)*\\n\\n*Facts block*\\n• Top categories:\\n${top}\\n• Peak hours:\\n${peak}\\n• Slow movers:\\n${slow}\\n\\n*Insights*\\n${anomalyText}\\n\\n*Recommended actions*\\n- Ưu tiên xử lý các SKU tồn >30 ngày.\\n- Tập trung ca bán theo khung giờ cao điểm.\\n- Rà soát các cảnh báo cần kiểm tra trước khi kết luận.`;\nreturn [{json:{...input,report,facts_json:payload}}];"
+      }
+    },
+    {
+      "id": "a6",
+      "name": "Cache Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1390, 220],
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.analytics_snapshots (shop_id, range_code, facts_json) values ($1::uuid, $2, $3::jsonb);",
+        "additionalFields": { "queryParams": "={{[$json.staff_context.shop_id, String($json.range_days)+'d', JSON.stringify($json.facts_json || {})]}}" }
+      }
+    },
+    { "id": "a7", "name": "Reply Analytics", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1620, 220], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.report}}" } },
+    { "id": "a8", "name": "Log Error", "type": "n8n-nodes-base.postgres", "typeVersion": 2.5, "position": [930, 360], "continueOnFail": true, "parameters": { "operation": "executeQuery", "query": "insert into public.error_logs (shop_id,workflow_name,node_name,telegram_chat_id,level,error_code,message,context) values ($1::uuid,'analytics','analytics-flow',$2,'ERROR','ANALYTICS_ERROR',$3,$4::jsonb);", "additionalFields": { "queryParams": "={{[$json.staff_context?.shop_id || null,$json.telegram_chat_id,$json.fail_message || 'Analytics failed', JSON.stringify($json)]}}" } } },
+    { "id": "a9", "name": "Reply Fail", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [1160, 360], "parameters": { "resource": "message", "operation": "sendMessage", "chatId": "={{$json.telegram_chat_id}}", "text": "={{$json.fail_message || 'Không thể phân tích dữ liệu lúc này. Vui lòng thử lại.'}}" } }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Parse Command + Flags", "type": "main", "index": 0 }]] },
+    "Parse Command + Flags": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": { "main": [[{ "node": "Load Facts (Sales + Inventory)", "type": "main", "index": 0 }], [{ "node": "Log Error", "type": "main", "index": 0 }]] },
+    "Load Facts (Sales + Inventory)": { "main": [[{ "node": "Build Deterministic Report", "type": "main", "index": 0 }]] },
+    "Build Deterministic Report": { "main": [[{ "node": "Cache Snapshot", "type": "main", "index": 0 }]] },
+    "Cache Snapshot": { "main": [[{ "node": "Reply Analytics", "type": "main", "index": 0 }]] },
+    "Log Error": { "main": [[{ "node": "Reply Fail", "type": "main", "index": 0 }]] }
+  }
+}

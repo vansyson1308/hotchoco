@@ -1,0 +1,9 @@
+{
+  "update_id": 27002,
+  "message": {
+    "message_id": 82,
+    "from": { "id": 10001 },
+    "chat": { "id": 10001, "type": "private" },
+    "text": "/export 2026-02-01 2026-02-28"
+  }
+}
