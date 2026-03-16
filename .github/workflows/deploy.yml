@@ -9,7 +9,7 @@ jobs:
     name: Validate Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -28,7 +28,7 @@ jobs:
     needs: validate
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Apply migrations to staging
         run: echo "TODO - configure Supabase CLI migration apply"
       - name: Smoke test staging
@@ -40,7 +40,7 @@ jobs:
     needs: deploy-staging
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Apply migrations to production
         run: echo "TODO - configure Supabase CLI migration apply"
       - name: Notify deployment
