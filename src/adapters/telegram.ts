@@ -29,15 +29,15 @@ export function telegramUpdateToNormalizedEvent(update: TelegramUpdate): Normali
     chatId: String(msg.chat?.id ?? ''),
     user: {
       platformUserId: String(msg.from?.id ?? ''),
-      displayName: msg.from?.first_name
+      displayName: msg.from?.first_name,
     },
     message: {
       text,
       command,
       args,
-      media
+      media,
     },
-    raw: update
+    raw: update,
   };
 }
 
@@ -47,29 +47,33 @@ export interface TelegramApiRequest {
 }
 
 export function normalizedActionsToTelegramRequests(actions: NormalizedAction[]): TelegramApiRequest[] {
-  return actions.map((action) => {
+  return actions.map((action): TelegramApiRequest => {
     if (action.type === 'sendText') {
-      return { method: 'sendMessage', payload: { chat_id: action.chatId, text: action.text } };
+      return { method: 'sendMessage' as const, payload: { chat_id: action.chatId, text: action.text } };
     }
 
     if (action.type === 'sendKeyboard') {
       return {
-        method: 'sendMessage',
+        method: 'sendMessage' as const,
         payload: {
           chat_id: action.chatId,
           text: action.text,
-          reply_markup: JSON.stringify({ inline_keyboard: [action.buttons.map((b) => ({ text: b.text, callback_data: b.data }))] })
-        }
+          reply_markup: JSON.stringify({
+            inline_keyboard: [
+              action.buttons.map((b: { text: string; data: string }) => ({ text: b.text, callback_data: b.data })),
+            ],
+          }),
+        },
       };
     }
 
     return {
-      method: 'sendDocument',
+      method: 'sendDocument' as const,
       payload: {
         chat_id: action.chatId,
         document: action.fileUrl,
-        caption: action.caption ?? ''
-      }
+        caption: action.caption ?? '',
+      },
     };
   });
 }

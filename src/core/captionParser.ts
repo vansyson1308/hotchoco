@@ -14,7 +14,10 @@ export interface LlmCaptionParser {
 
 function parseByRegex(caption: string): ParsedCaption {
   const compact = caption.trim();
-  const parts = compact.split(/\s*[,\-]\s*/).map((x) => x.trim()).filter(Boolean);
+  const parts = compact
+    .split(/\s+-\s+|,\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
 
   if (parts.length < 4) {
     throw new Error('Regex parser không đủ 4 trường');
@@ -26,12 +29,17 @@ function parseByRegex(caption: string): ParsedCaption {
     consignorCode: consignorRaw.toUpperCase(),
     categoryCode: toCategoryCode(categoryRaw),
     intakePriceVnd: sanitizeVND(intakeRaw),
-    salePriceVnd: sanitizeVND(saleRaw)
+    salePriceVnd: sanitizeVND(saleRaw),
   };
 }
 
 function assertCompleteParsed(input: Partial<ParsedCaption> | null): ParsedCaption {
-  if (!input?.consignorCode || !input.categoryCode || input.intakePriceVnd === undefined || input.salePriceVnd === undefined) {
+  if (
+    !input?.consignorCode ||
+    !input.categoryCode ||
+    input.intakePriceVnd === undefined ||
+    input.salePriceVnd === undefined
+  ) {
     throw new Error('LLM fallback không trả đủ 4 trường');
   }
 
@@ -39,23 +47,22 @@ function assertCompleteParsed(input: Partial<ParsedCaption> | null): ParsedCapti
     consignorCode: String(input.consignorCode).toUpperCase(),
     categoryCode: toCategoryCode(String(input.categoryCode)),
     intakePriceVnd: sanitizeVND(input.intakePriceVnd),
-    salePriceVnd: sanitizeVND(input.salePriceVnd)
+    salePriceVnd: sanitizeVND(input.salePriceVnd),
   };
 }
 
-export async function parseInventoryCaption(
-  caption: string,
-  llmParser?: LlmCaptionParser
-): Promise<ParsedCaption> {
+export async function parseInventoryCaption(caption: string, llmParser?: LlmCaptionParser): Promise<ParsedCaption> {
   if (!caption || !caption.trim()) {
     throw new Error('Caption không được để trống');
   }
 
   try {
     return parseByRegex(caption);
-  } catch (regexError) {
+  } catch (error) {
     if (!llmParser) {
-      throw new Error('Caption không hiểu, vui lòng nhập theo mẫu: <consignor>, <category>, <giá nhập>, <giá bán>');
+      throw new Error('Caption không hiểu, vui lòng nhập theo mẫu: <consignor>, <category>, <giá nhập>, <giá bán>', {
+        cause: error,
+      });
     }
 
     const parsed = await llmParser.parseCaptionToJson(caption);

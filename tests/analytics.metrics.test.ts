@@ -7,7 +7,7 @@ import {
   computeSlowMovers,
   computeTopCategories,
   detectAnomalySignals,
-  parseAnalyticsWindow
+  parseAnalyticsWindow,
 } from '../src/core/analytics/metrics';
 
 const facts = JSON.parse(readFileSync('tests/fixtures/analytics/sampleFacts.json', 'utf8'));
@@ -27,7 +27,7 @@ describe('analytics metrics', () => {
 
   it('computes peak hours distribution', () => {
     const peaks = computePeakHours(facts.sales);
-    expect(peaks[0].hour).toBe(9);
+    expect(peaks[0].hour).toBe(16);
   });
 
   it('detects slow movers over threshold', () => {

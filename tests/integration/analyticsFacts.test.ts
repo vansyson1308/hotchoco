@@ -5,7 +5,7 @@ import {
   computePeakHours,
   computeSlowMovers,
   computeTopCategories,
-  detectAnomalySignals
+  detectAnomalySignals,
 } from '../../src/core/analytics/metrics';
 
 const facts = JSON.parse(readFileSync('tests/fixtures/analytics/sampleFacts.json', 'utf8'));
@@ -19,7 +19,7 @@ describe('analytics facts integration expectations', () => {
     const anomalies = detectAnomalySignals(facts.sales);
 
     expect(top[0]).toMatchObject({ category: 'RING' });
-    expect(peak[0]).toMatchObject({ hour: 9 });
+    expect(peak[0]).toMatchObject({ hour: 16 });
     expect(slow.length).toBeGreaterThan(0);
     expect(consignor.length).toBeGreaterThan(0);
     expect(anomalies.every((x) => x.message.includes('cần kiểm tra'))).toBe(true);

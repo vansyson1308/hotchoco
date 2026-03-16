@@ -8,7 +8,7 @@ describe('parseInventoryCaption', () => {
       consignorCode: 'KS_MAI',
       categoryCode: 'RING',
       intakePriceVnd: 350000,
-      salePriceVnd: 1200000
+      salePriceVnd: 1200000,
     });
   });
 
@@ -25,10 +25,10 @@ describe('parseInventoryCaption', () => {
         return {
           consignorCode: 'ks77',
           categoryCode: 'bracelet',
-          intakePriceVnd: '200k',
-          salePriceVnd: '350k'
+          intakePriceVnd: 200000,
+          salePriceVnd: 350000,
         };
-      }
+      },
     };
 
     const parsed = await parseInventoryCaption('bad caption', llm);
@@ -36,7 +36,7 @@ describe('parseInventoryCaption', () => {
       consignorCode: 'KS77',
       categoryCode: 'BRACELET',
       intakePriceVnd: 200000,
-      salePriceVnd: 350000
+      salePriceVnd: 350000,
     });
   });
 

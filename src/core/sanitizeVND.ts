@@ -29,9 +29,8 @@ export function sanitizeVND(input: string | number | null | undefined): number {
     throw new Error('Giá trị tiền VND không hợp lệ, vui lòng nhập lại');
   }
 
-  let baseNumber = 0;
-
   const hasDecimal = numericPart.includes('.') || numericPart.includes(',');
+  let baseNumber: number;
   if (suffix && hasDecimal) {
     const normalizedDecimal = numericPart.replace(',', '.');
     if (!/^\d+(\.\d+)?$/.test(normalizedDecimal)) {

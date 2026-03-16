@@ -1,0 +1,47 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npm run test:unit -- --reporter=verbose
+      - run: npm run test:integration -- --reporter=verbose
+      - run: npm run test:e2e -- --reporter=verbose
+      - run: npm audit --audit-level=high || true
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to staging
+        run: echo "TODO - configure Supabase CLI migration apply"
+      - name: Smoke test staging
+        run: echo "TODO - run smoke test against staging URL"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to production
+        run: echo "TODO - configure Supabase CLI migration apply"
+      - name: Notify deployment
+        run: echo "Deployed ${{ github.event.release.tag_name }} to production"

@@ -22,9 +22,16 @@ export interface TopCategoryMetric {
   revenueVnd: number;
 }
 
-export interface PeakHourMetric { hour: number; count: number }
+export interface PeakHourMetric {
+  hour: number;
+  count: number;
+}
 
-export interface SlowMoverMetric { sku: string; category: string; ageDays: number }
+export interface SlowMoverMetric {
+  sku: string;
+  category: string;
+  ageDays: number;
+}
 
 export interface ConsignorScoreMetric {
   consignorId: string;
@@ -40,7 +47,11 @@ export interface PricingSuggestion {
   reason: string;
 }
 
-export interface AnomalySignal { code: string; message: string; level: 'LOW' | 'MEDIUM' | 'HIGH' }
+export interface AnomalySignal {
+  code: string;
+  message: string;
+  level: 'LOW' | 'MEDIUM' | 'HIGH';
+}
 
 export function parseAnalyticsWindow(input: string | null | undefined): 7 | 30 | 90 {
   const cmd = (input ?? '').toLowerCase();
@@ -62,14 +73,27 @@ export function computeTopCategories(sales: SaleFact[], limit = 5): TopCategoryM
   return [...map.values()].sort((a, b) => b.revenueVnd - a.revenueVnd).slice(0, limit);
 }
 
+function getVNHour(dateStr: string): number {
+  const d = new Date(dateStr);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour12: false,
+    hour: '2-digit',
+  }).formatToParts(d);
+  const hourPart = parts.find((p) => p.type === 'hour');
+  return Number(hourPart?.value ?? d.getHours());
+}
+
 export function computePeakHours(sales: SaleFact[]): PeakHourMetric[] {
   const map = new Map<number, number>();
   for (const s of sales) {
     if (s.isRefunded) continue;
-    const hour = new Date(s.soldAt).getHours();
+    const hour = getVNHour(s.soldAt);
     map.set(hour, (map.get(hour) ?? 0) + 1);
   }
-  return [...map.entries()].map(([hour, count]) => ({ hour, count })).sort((a, b) => b.count - a.count || a.hour - b.hour);
+  return [...map.entries()]
+    .map(([hour, count]) => ({ hour, count }))
+    .sort((a, b) => b.count - a.count || a.hour - b.hour);
 }
 
 export function computeSlowMovers(inventory: InventoryFact[], minDays = 30): SlowMoverMetric[] {
@@ -94,15 +118,18 @@ export function computeConsignorScores(inventory: InventoryFact[], sales: SaleFa
     totalByConsignor.set(i.consignorId, (totalByConsignor.get(i.consignorId) ?? 0) + 1);
   }
 
-  return [...totalByConsignor.entries()].map(([consignorId, totalItems]) => {
-    const sold = soldByConsignor.get(consignorId) ?? [];
-    const soldItems = sold.length;
-    const sellThroughRate = totalItems > 0 ? Number(((soldItems / totalItems) * 100).toFixed(2)) : 0;
-    const avgDaysToSell = soldItems > 0
-      ? Number((sold.reduce((acc, s) => acc + Math.max(0, s.daysToSell ?? 0), 0) / soldItems).toFixed(2))
-      : null;
-    return { consignorId, totalItems, soldItems, sellThroughRate, avgDaysToSell };
-  }).sort((a, b) => b.sellThroughRate - a.sellThroughRate);
+  return [...totalByConsignor.entries()]
+    .map(([consignorId, totalItems]) => {
+      const sold = soldByConsignor.get(consignorId) ?? [];
+      const soldItems = sold.length;
+      const sellThroughRate = totalItems > 0 ? Number(((soldItems / totalItems) * 100).toFixed(2)) : 0;
+      const avgDaysToSell =
+        soldItems > 0
+          ? Number((sold.reduce((acc, s) => acc + Math.max(0, s.daysToSell ?? 0), 0) / soldItems).toFixed(2))
+          : null;
+      return { consignorId, totalItems, soldItems, sellThroughRate, avgDaysToSell };
+    })
+    .sort((a, b) => b.sellThroughRate - a.sellThroughRate);
 }
 
 export function computePricingSuggestions(sales: SaleFact[]): PricingSuggestion[] {
@@ -121,13 +148,15 @@ export function computePricingSuggestions(sales: SaleFact[]): PricingSuggestion[
     const sorted = [...rows].sort((a, b) => a.soldPriceVnd - b.soldPriceVnd);
     const median = sorted[Math.floor(sorted.length / 2)].soldPriceVnd;
     const fast = rows.filter((x) => (x.daysToSell ?? 999) <= 14);
-    const fastMedian = fast.length ? [...fast].sort((a, b) => a.soldPriceVnd - b.soldPriceVnd)[Math.floor(fast.length / 2)].soldPriceVnd : median;
+    const fastMedian = fast.length
+      ? [...fast].sort((a, b) => a.soldPriceVnd - b.soldPriceVnd)[Math.floor(fast.length / 2)].soldPriceVnd
+      : median;
     const bandMin = Math.round(fastMedian * 0.9);
     const bandMax = Math.round(fastMedian * 1.1);
     out.push({
       category,
       recommendedBand: `${bandMin}-${bandMax}đ`,
-      reason: `Dữ liệu cho thấy nhóm giá gần ${fastMedian}đ có tốc độ bán tốt hơn trong 14 ngày.`
+      reason: `Dữ liệu cho thấy nhóm giá gần ${fastMedian}đ có tốc độ bán tốt hơn trong 14 ngày.`,
     });
   }
   return out;
@@ -142,19 +171,19 @@ export function detectAnomalySignals(sales: SaleFact[]): AnomalySignal[] {
     signals.push({
       code: 'REFUND_SPIKE',
       level: 'HIGH',
-      message: 'Cảnh báo cần kiểm tra: tỷ lệ refund tăng cao bất thường so với tổng giao dịch.'
+      message: 'Cảnh báo cần kiểm tra: tỷ lệ refund tăng cao bất thường so với tổng giao dịch.',
     });
   }
 
   const offHours = sales.filter((s) => {
-    const h = new Date(s.soldAt).getHours();
+    const h = getVNHour(s.soldAt);
     return h < 8 || h > 22;
   }).length;
   if (offHours / sales.length >= 0.15) {
     signals.push({
       code: 'OFF_HOUR_SALES',
       level: 'MEDIUM',
-      message: 'Cảnh báo cần kiểm tra: xuất hiện nhiều giao dịch ngoài khung giờ vận hành thông thường.'
+      message: 'Cảnh báo cần kiểm tra: xuất hiện nhiều giao dịch ngoài khung giờ vận hành thông thường.',
     });
   }
 
@@ -171,7 +200,7 @@ export function detectAnomalySignals(sales: SaleFact[]): AnomalySignal[] {
       signals.push({
         code: 'STAFF_OUTLIER',
         level: 'LOW',
-        message: 'Cảnh báo cần kiểm tra: chênh lệch sản lượng theo nhân sự cao hơn mức thông thường.'
+        message: 'Cảnh báo cần kiểm tra: chênh lệch sản lượng theo nhân sự cao hơn mức thông thường.',
       });
     }
   }
