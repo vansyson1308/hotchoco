@@ -1,3 +1,4 @@
+/** @deprecated Use GoogleSheetsAdapter.getExpiringProducts() instead. */
 export function buildExpiryWarningQuery(): string {
   return [
     'select',
@@ -10,6 +11,6 @@ export function buildExpiryWarningQuery(): string {
     "where i.status in ('AVAILABLE','RESERVED')",
     '  and i.expiry_date is not null',
     "  and i.expiry_date = ((timezone('Asia/Ho_Chi_Minh', now()))::date + interval '3 day')::date",
-    'order by i.shop_id, c.display_name, i.sku;'
+    'order by i.shop_id, c.display_name, i.sku;',
   ].join(' ');
 }

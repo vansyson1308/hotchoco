@@ -1,0 +1,9 @@
+hotchoco.bachhoanhanh.net {
+    # n8n UI + Telegram webhooks
+    reverse_proxy n8n:5678
+
+    # POS API
+    handle /api/* {
+        reverse_proxy pos-api:3099
+    }
+}

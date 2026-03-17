@@ -23,7 +23,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['tools/**/*.js', 'scripts/**/*.js'],
+    files: ['tools/**/*.js', 'tools/**/*.ts', 'scripts/**/*.js'],
     languageOptions: {
       globals: {
         console: 'readonly',

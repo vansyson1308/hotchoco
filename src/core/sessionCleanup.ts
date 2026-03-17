@@ -2,6 +2,7 @@ export interface SessionCleanupQueryInput {
   staleAfterHours?: number;
 }
 
+/** @deprecated Use GoogleSheetsAdapter.cleanupExpiredBatches() instead. */
 export function buildSessionCleanupQuery(input: SessionCleanupQueryInput = {}): { sql: string; params: number[] } {
   const staleAfter = Math.max(1, Math.min(72, Math.round(input.staleAfterHours ?? 2)));
   return {

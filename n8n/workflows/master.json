@@ -38,56 +38,44 @@
     },
     {
       "id": "3",
-      "name": "Auth Guard (Supabase)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "name": "Auth Guard (Google Sheets)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
         660,
         300
       ],
       "parameters": {
-        "method": "GET",
-        "url": "={{$env.SUPABASE_URL}}/rest/v1/staff",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "select",
-              "value": "id,shop_id,role,is_active"
-            },
-            {
-              "name": "telegram_user_id",
-              "value": "=eq.{{$json.telegram_user_id}}"
-            },
-            {
-              "name": "is_active",
-              "value": "eq.true"
-            },
-            {
-              "name": "limit",
-              "value": "1"
-            }
-          ]
+        "operation": "read",
+        "documentId": {
+          "mode": "byId",
+          "value": "={{$env.GOOGLE_SHEETS_SPREADSHEET_ID}}"
         },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
+        "sheetName": {
+          "mode": "bySheetName",
+          "value": "Admin_Staff"
+        },
+        "filtersUI": {
+          "values": [
             {
-              "name": "apikey",
-              "value": "={{$env.SUPABASE_SERVICE_KEY}}"
+              "lookupColumn": "Telegram_User_ID",
+              "lookupValue": "={{$json.telegram_user_id}}"
             },
             {
-              "name": "Authorization",
-              "value": "=Bearer {{$env.SUPABASE_SERVICE_KEY}}"
+              "lookupColumn": "Active",
+              "lookupValue": "TRUE"
             }
           ]
         },
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "returnAll": false,
+          "limit": 1
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets Service Account"
         }
       }
     },
@@ -102,7 +90,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const staff = Array.isArray($json) ? $json[0] : ($json[0] ?? null);\nconst input = $items('Normalize Update', 0, 0)[0].json;\nif (!staff) {\n  return [{ json: { ...input, authorized: false } }];\n}\nreturn [{ json: { ...input, authorized: true, staff_context: { staff_id: staff.id, shop_id: staff.shop_id, role: staff.role } } }];"
+        "jsCode": "const items = $input.all();\nconst staff = items.length > 0 ? items[0].json : null;\nconst input = $items('Normalize Update', 0, 0)[0].json;\nif (!staff || !staff.ID) {\n  return [{ json: { ...input, authorized: false } }];\n}\nreturn [{ json: { ...input, authorized: true, staff_context: { staff_id: staff.ID, shop_id: 'default', role: staff.Role || 'STAFF' } } }];"
       }
     },
     {
@@ -189,19 +177,16 @@
     },
     {
       "id": "7",
-      "name": "Log error_logs",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "name": "Log Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1590,
         460
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "insert into public.error_logs (shop_id, workflow_name, node_name, telegram_chat_id, level, error_code, message, context) values (nullif($1,'' )::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb);",
-        "additionalFields": {
-          "queryParams": "={{[$json.shop_id, $json.workflow_name, $json.node_name, $json.telegram_chat_id, $json.level, $json.error_code, $json.message, JSON.stringify($json.context)]}}"
-        }
+        "language": "javaScript",
+        "jsCode": "console.error('[HOTCHOCO ERROR]', JSON.stringify({\n  workflow: $json.workflow_name,\n  node: $json.node_name,\n  level: $json.level,\n  code: $json.error_code,\n  message: $json.message,\n  context: $json.context\n}));\nreturn [{ json: $json }];"
       },
       "continueOnFail": true
     },
@@ -527,7 +512,7 @@
       ],
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const cmd = ($json.command || '').toLowerCase();\nif (cmd.startsWith('/sell')) return [{json:{...$json, cmd_route:'sell'}}];\nif (cmd.startsWith('/receive') || cmd.startsWith('/done')) return [{json:{...$json, cmd_route:'bulk_receive'}}];\nif (cmd.startsWith('/sales')) return [{json:{...$json, cmd_route:'sales_report'}}];\nif (cmd.startsWith('/refund')) return [{json:{...$json, cmd_route:'refund'}}];\nif (cmd.startsWith('/settle')) return [{json:{...$json, cmd_route:'settlement'}}];\nif (cmd.startsWith('/expense')) return [{json:{...$json, cmd_route:'expense'}}];\nif (cmd.startsWith('/bctc')) return [{json:{...$json, cmd_route:'bctc'}}];\nif (cmd.startsWith('/return')) return [{json:{...$json, cmd_route:'return_item'}}];\nif (cmd.startsWith('/setrate')) return [{json:{...$json, cmd_route:'setrate'}}];\nif (cmd.startsWith('/export')) return [{json:{...$json, cmd_route:'export_excel'}}];\nif (cmd.startsWith('/analytics')) return [{json:{...$json, cmd_route:'analytics'}}];\nif (cmd.startsWith('/myitems') || cmd.startsWith('/mysales') || cmd.startsWith('/mypayouts')) return [{json:{...$json, cmd_route:'consignor_portal'}}];\nreturn [{json:{...$json, cmd_route:'command_stub'}}];"
+        "jsCode": "const cmd = ($json.command || '').toLowerCase();\nif (cmd.startsWith('/sell')) return [{json:{...$json, cmd_route:'sell'}}];\nif (cmd.startsWith('/receive') || cmd.startsWith('/done')) return [{json:{...$json, cmd_route:'bulk_receive'}}];\nif (cmd.startsWith('/sales')) return [{json:{...$json, cmd_route:'sales_report'}}];\nif (cmd.startsWith('/refund')) return [{json:{...$json, cmd_route:'refund'}}];\nif (cmd.startsWith('/settle')) return [{json:{...$json, cmd_route:'settlement'}}];\nif (cmd.startsWith('/expense')) return [{json:{...$json, cmd_route:'expense'}}];\nif (cmd.startsWith('/bctc')) return [{json:{...$json, cmd_route:'bctc'}}];\nif (cmd.startsWith('/return')) return [{json:{...$json, cmd_route:'return_item'}}];\nif (cmd.startsWith('/setrate')) return [{json:{...$json, cmd_route:'setrate'}}];\nif (cmd.startsWith('/export')) return [{json:{...$json, cmd_route:'export_excel'}}];\nif (cmd.startsWith('/analytics')) return [{json:{...$json, cmd_route:'analytics'}}];\nif (cmd.startsWith('/myitems') || cmd.startsWith('/mysales') || cmd.startsWith('/mypayouts')) return [{json:{...$json, cmd_route:'consignor_portal'}}];\nif (cmd.startsWith('/link')) return [{json:{...$json, cmd_route:'link_account'}}];\nreturn [{json:{...$json, cmd_route:'command_stub'}}];"
       }
     },
     {
@@ -1098,7 +1083,7 @@
         ]
       ]
     },
-    "Auth Guard (Supabase)": {
+    "Auth Guard (Google Sheets)": {
       "main": [
         [
           {
@@ -1142,14 +1127,14 @@
       "main": [
         [
           {
-            "node": "Log error_logs",
+            "node": "Log Error",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Log error_logs": {
+    "Log Error": {
       "main": [
         [
           {
@@ -1396,7 +1381,7 @@
         ],
         [
           {
-            "node": "Auth Guard (Supabase)",
+            "node": "Auth Guard (Google Sheets)",
             "type": "main",
             "index": 0
           }

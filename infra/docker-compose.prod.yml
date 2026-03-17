@@ -1,16 +1,30 @@
 version: '3.9'
 
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - n8n
+      - pos-api
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
 
-  n8n-main:
-    image: n8nio/n8n:1.77.3
+  n8n:
+    image: n8nio/n8n:1.83.2
     restart: unless-stopped
-    ports:
-      - "5678:5678"
+    expose:
+      - "5678"
     env_file:
       - ../.env
     environment:
@@ -19,55 +33,36 @@ services:
       - WEBHOOK_URL=${WEBHOOK_URL}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - N8N_DIAGNOSTICS_ENABLED=false
-      - N8N_QUEUE_BULL_REDIS_HOST=redis
-      - EXECUTIONS_MODE=queue
-      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=false
-      - N8N_RUNNERS_ENABLED=true
-      - N8N_METRICS=true
+      - DB_TYPE=sqlite
+      - EXECUTIONS_MODE=regular
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Ho_Chi_Minh}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GOOGLE_SHEETS_SPREADSHEET_ID=${GOOGLE_SHEETS_SPREADSHEET_ID}
+      - GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}
     depends_on:
       - redis
+    volumes:
+      - n8n_data:/home/node/.n8n
 
-  n8n-worker:
-    image: n8nio/n8n:1.77.3
+  pos-api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.pos-api
     restart: unless-stopped
-    env_file:
-      - ../.env
-    environment:
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - N8N_DIAGNOSTICS_ENABLED=false
-      - N8N_QUEUE_BULL_REDIS_HOST=redis
-      - EXECUTIONS_MODE=queue
-      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
-      - N8N_RUNNERS_ENABLED=true
-      - N8N_METRICS=true
-    command: ["n8n", "worker", "--concurrency=10"]
     depends_on:
       - redis
-
-  prometheus:
-    image: prom/prometheus:v2.51.0
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.retention.time=30d'
-
-  grafana:
-    image: grafana/grafana:11.0.0
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3099"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      - prometheus
+      - POS_API_PORT=3099
+      - POS_API_KEY=${POS_API_KEY:-}
+      - GOOGLE_SHEETS_SPREADSHEET_ID=${GOOGLE_SHEETS_SPREADSHEET_ID}
+      - GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=production
 
 volumes:
-  prometheus_data:
-  grafana_data:
+  n8n_data:
+  caddy_data:
+  caddy_config:

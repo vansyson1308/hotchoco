@@ -13,10 +13,10 @@ describe('POS API contract', () => {
     expect(appTs).toContain("app.post('/sales'");
   });
 
-  it('enforces bearer api key and shop scoping', () => {
+  it('enforces bearer api key authentication', () => {
     expect(appTs).toContain('authorization');
-    expect(appTs).toContain('public.api_keys');
-    expect(appTs).toContain('shop_id = $1::uuid');
+    expect(appTs).toContain('api_key');
+    expect(appTs).toContain('401');
   });
 
   it('openapi includes required paths', () => {

@@ -32,7 +32,7 @@ export const TelegramUpdateSchema = z.object({
 
 // ─── POS API Schemas ──────────────────────────────────────
 export const InventoryCreateSchema = z.object({
-  consignor_id: z.string().uuid(),
+  consignor_id: z.string().min(1),
   sku: z.string().min(1).max(50),
   category: z.string().min(1).max(30),
   intake_price_vnd: z.union([z.number().int().nonnegative(), z.string().min(1)]),
@@ -48,6 +48,7 @@ export const InventoryUpdateSchema = z.object({
 export const SaleCreateSchema = z.object({
   sku: z.string().min(1).max(50),
   sold_price_vnd: z.union([z.number().int().nonnegative(), z.string().min(1)]).optional(),
+  payment_method: z.enum(['CASH', 'TRANSFER', 'MOMO', 'ZALOPAY', 'CARD']).optional(),
 });
 
 export const SkuParamSchema = z.object({

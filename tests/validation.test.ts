@@ -49,9 +49,9 @@ describe('Zod Validation Schemas', () => {
       expect(result.intake_price_vnd).toBe('500k');
     });
 
-    it('rejects invalid UUID', () => {
+    it('rejects empty consignor_id', () => {
       const input = {
-        consignor_id: 'not-a-uuid',
+        consignor_id: '',
         sku: 'RING-ABC123',
         category: 'RING',
         intake_price_vnd: 500000,

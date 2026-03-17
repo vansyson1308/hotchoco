@@ -20,10 +20,14 @@ export function calculateSettlementNet(input: SettlementInput): SettlementResult
   return {
     appliedDeductionVnd,
     carryOverDeductionVnd,
-    netPayoutVnd
+    netPayoutVnd,
   };
 }
 
+/**
+ * @deprecated Use GoogleSheetsAdapter.applySettlement() instead.
+ * Retained for backward compatibility during migration.
+ */
 export function buildSettlementApplySQL(): string {
   return [
     'begin;',
@@ -54,7 +58,7 @@ export function buildSettlementApplySQL(): string {
     '    greatest(0, sa.gross_payout_vnd - aa.pending_deduction_vnd)::bigint as net_payout_vnd',
     '  from sale_agg sa cross join adj_agg aa',
     '), ins as (',
-    "  insert into public.settlements (shop_id, consignor_id, period_start, period_end, gross_sales_vnd, commission_total_vnd, refund_deductions_vnd, net_payout_vnd, status)",
+    '  insert into public.settlements (shop_id, consignor_id, period_start, period_end, gross_sales_vnd, commission_total_vnd, refund_deductions_vnd, net_payout_vnd, status)',
     "  select $1::uuid, $2::uuid, $3::date, $4::date, gross_payout_vnd, shop_commission_vnd, applied_deduction_vnd, net_payout_vnd, 'COMPLETED'",
     '  from calc returning id',
     '), upd_sales as (',
@@ -67,6 +71,6 @@ export function buildSettlementApplySQL(): string {
     '  deducted_in_settlement_id = (select id from ins),',
     "  note = coalesce(note,'') || ' | settled'",
     "where shop_id = $1::uuid and consignor_id = $2::uuid and deduction_status = 'PENDING';",
-    'commit;'
+    'commit;',
   ].join(' ');
 }

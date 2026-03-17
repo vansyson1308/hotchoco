@@ -12,7 +12,7 @@ describe('release readiness contracts', () => {
   it('pos api dependencies are present', () => {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
     expect(pkg.dependencies.express).toBeDefined();
-    expect(pkg.dependencies.pg).toBeDefined();
+    expect(pkg.dependencies.googleapis).toBeDefined();
   });
 
   it('required operational docs exist', () => {

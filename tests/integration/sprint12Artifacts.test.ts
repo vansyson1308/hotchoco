@@ -2,10 +2,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('sprint 12 production-readiness artifacts', () => {
-  it('contains production compose with worker service', () => {
+  it('contains production compose with n8n and pos-api services', () => {
     const yml = readFileSync('infra/docker-compose.prod.yml', 'utf8');
-    expect(yml).toContain('n8n-worker');
-    expect(yml).toContain('EXECUTIONS_MODE=queue');
+    expect(yml).toContain('n8n:');
+    expect(yml).toContain('pos-api:');
+    expect(yml).toContain('GOOGLE_SHEETS_SPREADSHEET_ID');
   });
 
   it('contains self-host supabase option files', () => {

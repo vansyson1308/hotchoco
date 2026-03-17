@@ -22,23 +22,27 @@ export function buildRefundDecision(snapshot: RefundSaleSnapshot): RefundDecisio
     return {
       needsAdjustment: false,
       adjustmentAmountVnd: 0,
-      userHint: 'Sale chưa quyết toán, hoàn hàng trực tiếp không tạo khấu trừ kỳ sau.'
+      userHint: 'Sale chưa quyết toán, hoàn hàng trực tiếp không tạo khấu trừ kỳ sau.',
     };
   }
 
   return {
     needsAdjustment: true,
     adjustmentAmountVnd: snapshot.consignorAmountVnd,
-    userHint: 'Sale đã quyết toán, sẽ tạo khấu trừ kỳ sau cho nhà ký gửi.'
+    userHint: 'Sale đã quyết toán, sẽ tạo khấu trừ kỳ sau cho nhà ký gửi.',
   };
 }
 
+/**
+ * @deprecated Use GoogleSheetsAdapter.processRefund() instead.
+ * Retained for backward compatibility during migration.
+ */
 export function buildRefundTransactionSQL(): string {
   return [
     'begin;',
-    "with target as (",
-    "  select s.id as sale_id, s.inventory_id, s.shop_id, s.sku, i.consignor_id,",
-    "         s.consignor_amount_vnd, s.settlement_id",
+    'with target as (',
+    '  select s.id as sale_id, s.inventory_id, s.shop_id, s.sku, i.consignor_id,',
+    '         s.consignor_amount_vnd, s.settlement_id',
     '  from public.sales s',
     '  join public.inventory i on i.id = s.inventory_id',
     "  where s.shop_id = $1::uuid and s.sku = $2 and s.status = 'COMPLETED'",
@@ -54,7 +58,7 @@ export function buildRefundTransactionSQL(): string {
     '  where id = (select inventory_id from target)',
     '  returning id',
     '), ins_adj as (',
-    "  insert into public.refund_adjustments (shop_id, sale_id, consignor_id, amount_vnd, deduction_status, note)",
+    '  insert into public.refund_adjustments (shop_id, sale_id, consignor_id, amount_vnd, deduction_status, note)',
     "  select shop_id, sale_id, consignor_id, consignor_amount_vnd, 'PENDING', 'AUTO REFUND SETTLED'",
     '  from target',
     '  where settlement_id is not null',
@@ -64,7 +68,7 @@ export function buildRefundTransactionSQL(): string {
     '  (select count(*) from upd_sale) as refunded_sale_count,',
     '  (select count(*) from upd_inv) as restored_inventory_count,',
     '  (select count(*) from ins_adj) as adjustment_count;',
-    'commit;'
+    'commit;',
   ].join(' ');
 }
 

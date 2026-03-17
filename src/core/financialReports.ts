@@ -1,3 +1,6 @@
+/**
+ * @deprecated Use GoogleSheetsAdapter.getMonthlyBCTC() instead.
+ */
 export function buildMonthlyBCTCSQL(): string {
   return [
     'with sales_agg as (',
@@ -25,6 +28,9 @@ export function buildMonthlyBCTCSQL(): string {
   ].join(' ');
 }
 
+/**
+ * @deprecated Use GoogleSheetsAdapter.getDailySalesSummary() instead.
+ */
 export function buildDailySalesSummarySQL(): string {
   return [
     'select',

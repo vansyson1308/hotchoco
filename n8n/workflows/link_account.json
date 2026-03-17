@@ -1,0 +1,199 @@
+{
+  "name": "HOT CHOCO - Link Telegram Account",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "id": "2",
+      "name": "Parse PIN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [430, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const text = $json.message?.text || '';\nconst match = text.match(/^\\/link\\s+(\\d{4,6})$/i);\nif (!match) {\n  return [{ json: { ...$json, error: true, reply: 'Cú pháp đúng: /link <PIN>\\nVí dụ: /link 1234' } }];\n}\nreturn [{ json: { ...$json, pin: match[1], error: false } }];"
+      }
+    },
+    {
+      "id": "3",
+      "name": "Has Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [660, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.error}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4",
+      "name": "Send Error Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 400],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "={{$json.reply}}"
+      }
+    },
+    {
+      "id": "5",
+      "name": "Find Staff by PIN",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [900, 200],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "mode": "byId",
+          "value": "={{$env.GOOGLE_SHEETS_SPREADSHEET_ID}}"
+        },
+        "sheetName": {
+          "mode": "bySheetName",
+          "value": "Admin_Staff"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "PIN",
+              "lookupValue": "={{$json.pin}}"
+            },
+            {
+              "lookupColumn": "Active",
+              "lookupValue": "TRUE"
+            }
+          ]
+        },
+        "options": {
+          "returnAll": false,
+          "limit": 1
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets Service Account"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "name": "Staff Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1130, 200],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.ID || ''}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7",
+      "name": "Update Telegram_User_ID",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1360, 140],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "byId",
+          "value": "={{$env.GOOGLE_SHEETS_SPREADSHEET_ID}}"
+        },
+        "sheetName": {
+          "mode": "bySheetName",
+          "value": "Admin_Staff"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{$json.ID}}",
+            "Telegram_User_ID": "={{$items('Parse PIN', 0, 0)[0].json.telegram_user_id}}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets Service Account"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "name": "Send Success Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1590, 140],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$items('Parse PIN', 0, 0)[0].json.telegram_chat_id}}",
+        "text": "=Liên kết thành công! Xin chào {{$json.Name}}, bạn đã được kết nối với vai trò {{$json.Role}}."
+      }
+    },
+    {
+      "id": "9",
+      "name": "Send Not Found Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1360, 260],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$items('Parse PIN', 0, 0)[0].json.telegram_chat_id}}",
+        "text": "Không tìm thấy nhân viên với PIN này. Vui lòng kiểm tra lại hoặc liên hệ chủ shop."
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [[{ "node": "Parse PIN", "type": "main", "index": 0 }]]
+    },
+    "Parse PIN": {
+      "main": [[{ "node": "Has Error?", "type": "main", "index": 0 }]]
+    },
+    "Has Error?": {
+      "main": [
+        [{ "node": "Send Error Reply", "type": "main", "index": 0 }],
+        [{ "node": "Find Staff by PIN", "type": "main", "index": 0 }]
+      ]
+    },
+    "Find Staff by PIN": {
+      "main": [[{ "node": "Staff Found?", "type": "main", "index": 0 }]]
+    },
+    "Staff Found?": {
+      "main": [
+        [{ "node": "Update Telegram_User_ID", "type": "main", "index": 0 }],
+        [{ "node": "Send Not Found Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Telegram_User_ID": {
+      "main": [[{ "node": "Send Success Reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {}
+}
