@@ -86,6 +86,7 @@ export function buildApp(injectedAdapter?: GoogleSheetsAdapter) {
   if (injectedAdapter) adapter = injectedAdapter;
 
   const app = express();
+  app.set('trust proxy', 1);
 
   app.use(helmet());
   app.use(cors({ origin: process.env.CORS_ORIGIN ?? false, methods: ['GET', 'POST', 'PATCH', 'DELETE'] }));
